@@ -111,9 +111,8 @@ export class Game {
   _applyPlatform(isMobile) {
     this._platformManuallySet = true;
     if (isMobile) {
-      this.touchControls.player = this.player; // may be null during menu, wired in loadLevel
-      this.touchControls.enable();
-      // Mobile: no pointer lock
+      this.touchControls.player = this.player;
+      // Don't enable here — only enable when gameplay starts so menus stay tappable
     } else {
       this.touchControls.disable();
     }
@@ -353,6 +352,7 @@ export class Game {
     this.ui.showState('paused');
     document.exitPointerLock?.();
     this.audio.suspend();
+    this.touchControls.disable();
   }
 
   resume() {
@@ -372,6 +372,7 @@ export class Game {
     this.ui.showState('menu');
     document.exitPointerLock?.();
     this.audio.setMusicState('none');
+    this.touchControls.disable();
     if (this.saveData) this.ui.enableContinueButton();
   }
 
@@ -380,6 +381,7 @@ export class Game {
     this.state = STATES.DEAD;
     document.exitPointerLock?.();
     this.audio.setMusicState('none');
+    this.touchControls.disable();
     const msg = this.DEATH_MESSAGES[Math.floor(Math.random() * this.DEATH_MESSAGES.length)];
     this.ui.showDeath(msg);
     if (this.animFrame) { cancelAnimationFrame(this.animFrame); this.animFrame = null; }
@@ -413,6 +415,7 @@ export class Game {
     this.state = STATES.SAVE_ROOM;
     this.ui.showState('save');
     document.exitPointerLock?.();
+    this.touchControls.disable();
     this.events.handleSafeRoom(this.audio);
     if (this.player) this.player.restoreAll();
     this.disturbance.level = Math.max(0, this.disturbance.level - 0.5);
