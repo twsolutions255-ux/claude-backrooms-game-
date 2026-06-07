@@ -53,11 +53,17 @@ export class UI {
     this.loadHint = document.getElementById('load-hint');
 
     // Options
-    this.optVol = document.getElementById('opt-vol');
-    this.optMusic = document.getElementById('opt-music');
-    this.optSens = document.getElementById('opt-sens');
-    this.optVHS = document.getElementById('opt-vhs');
-    this.optFog = document.getElementById('opt-fog');
+    this.optVol       = document.getElementById('opt-vol');
+    this.optMusic     = document.getElementById('opt-music');
+    this.optSens      = document.getElementById('opt-sens');
+    this.optTouchSens = document.getElementById('opt-touch-sens');
+    this.optVHS       = document.getElementById('opt-vhs');
+    this.optFog       = document.getElementById('opt-fog');
+    this.optPCBtn     = document.getElementById('opt-pc');
+    this.optMobileBtn = document.getElementById('opt-mobile');
+
+    // Platform state
+    this.isMobile = false; // set externally by Game via setPlatform()
 
     // State
     this.inventoryOpen = false;
@@ -69,6 +75,16 @@ export class UI {
 
     this._bindButtons();
     this._buildInventoryGrid();
+  }
+
+  // Called by Game after auto-detection; also called on toggle
+  setPlatform(isMobile) {
+    this.isMobile = isMobile;
+    document.body.classList.toggle('platform-mobile', isMobile);
+    document.body.classList.toggle('platform-pc',     !isMobile);
+    this.optPCBtn?.classList.toggle('active',     !isMobile);
+    this.optMobileBtn?.classList.toggle('active',  isMobile);
+    this._emit('platform_change', { isMobile });
   }
 
   _bindButtons() {
@@ -83,6 +99,10 @@ export class UI {
     document.getElementById('btn-options2')?.addEventListener('click', () => this.showOptions());
     document.getElementById('btn-menu2')?.addEventListener('click', () => this._emit('to_menu'));
     document.getElementById('btn-close-opts')?.addEventListener('click', () => this.hideOptions());
+
+    // Platform toggle buttons
+    this.optPCBtn?.addEventListener('click', () => this.setPlatform(false));
+    this.optMobileBtn?.addEventListener('click', () => this.setPlatform(true));
 
     document.addEventListener('keydown', e => {
       if (e.code === 'Tab') {
@@ -374,11 +394,13 @@ export class UI {
 
   getOptions() {
     return {
-      masterVol: (this.optVol?.value || 70) / 100,
-      musicVol: (this.optMusic?.value || 50) / 100,
-      sensitivity: (this.optSens?.value || 8) * 0.0003,
-      vhsEnabled: this.optVHS?.checked !== false,
-      fogDensity: ((this.optFog?.value || 5) / 10) * 0.12,
+      masterVol:    (this.optVol?.value || 70) / 100,
+      musicVol:     (this.optMusic?.value || 50) / 100,
+      sensitivity:  (this.optSens?.value || 8) * 0.0003,
+      touchSens:    parseInt(this.optTouchSens?.value || 8),
+      vhsEnabled:   this.optVHS?.checked !== false,
+      fogDensity:   ((this.optFog?.value || 5) / 10) * 0.12,
+      isMobile:     this.isMobile,
     };
   }
 }

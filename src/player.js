@@ -68,6 +68,14 @@ export class Player {
     this.mouseDX = 0;
     this.sensitivity = 0.002;
 
+    // Touch input state (populated by TouchControls)
+    this.touch = {
+      moveX: 0, moveY: 0,      // joystick direction, magnitude 0-1
+      lookDX: 0,                // accumulated look delta this frame
+      sprintHeld: false,
+      crouchHeld: false,
+    };
+
     this._setupInput();
   }
 
@@ -192,29 +200,54 @@ export class Player {
   }
 
   _handleRotation(dt) {
-    // Mouse look
-    const rot = this.mouseDX * this.sensitivity;
-    if (Math.abs(rot) > 0.0001) this.rotate(-rot);
+    // Mouse look (PC)
+    let totalDX = this.mouseDX;
     this.mouseDX = 0;
 
-    // Keyboard turn (also supported)
+    // Touch look
+    if (this.touch.lookDX !== 0) {
+      totalDX += this.touch.lookDX;
+      this.touch.lookDX = 0;
+    }
+
+    const rot = totalDX * this.sensitivity;
+    if (Math.abs(rot) > 0.0001) this.rotate(-rot);
+
+    // Keyboard turn
     const turnSpd = 2.0 * dt;
     if (this.keys['ArrowLeft']) this.rotate(turnSpd);
     if (this.keys['ArrowRight']) this.rotate(-turnSpd);
   }
 
   _handleMovement(dt, map) {
-    const sprinting = (this.keys['ShiftLeft'] || this.keys['ShiftRight']) && !this.exhausted && !this.isCrouching;
+    // Determine sprint from keyboard OR touch sprint button
+    const kbSprint = (this.keys['ShiftLeft'] || this.keys['ShiftRight']);
+    const sprinting = (kbSprint || this.touch.sprintHeld) && !this.exhausted && !this.isCrouching;
     this.isSprinting = sprinting && this.stamina > 0;
+
+    // Crouching from keyboard OR touch
+    if (this.touch.crouchHeld !== undefined) {
+      // crouch toggle handled externally; touch hold overrides only if held
+    }
 
     const speedMult = this.isSprinting ? this.sprintMult : (this.isCrouching ? this.crouchMult : 1);
     const spd = this.speed * speedMult;
 
     let targetVX = 0, targetVY = 0;
+
+    // Keyboard input
     if (this.keys['KeyW'] || this.keys['ArrowUp']) { targetVX += this.dirX * spd; targetVY += this.dirY * spd; }
     if (this.keys['KeyS'] || this.keys['ArrowDown']) { targetVX -= this.dirX * spd; targetVY -= this.dirY * spd; }
     if (this.keys['KeyA']) { targetVX += this.dirY * spd; targetVY -= this.dirX * spd; }
     if (this.keys['KeyD']) { targetVX -= this.dirY * spd; targetVY += this.dirX * spd; }
+
+    // Touch joystick input (adds to keyboard if both active)
+    if (this.touch.moveX !== 0 || this.touch.moveY !== 0) {
+      // touch.moveX/Y are in world-relative terms mapped to camera-space:
+      // moveY = forward/back (positive = forward), moveX = strafe (positive = right)
+      targetVX += this.dirX  * this.touch.moveY * spd - this.dirY  * this.touch.moveX * spd;
+      targetVY += this.dirY  * this.touch.moveY * spd + this.dirX  * this.touch.moveX * spd;
+    }
 
     // Smooth acceleration
     const acc = this.accel * dt;

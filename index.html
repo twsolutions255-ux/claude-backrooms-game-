@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>THE BACKROOMS</title>
     <link rel="stylesheet" href="style.css">
 </head>
@@ -74,8 +74,11 @@
                     <button id="btn-continue" class="mbtn hidden">▶ CONTINUE</button>
                     <button id="btn-options" class="mbtn">⚙ OPTIONS</button>
                 </div>
-                <div id="menu-controls">
+                <div id="menu-controls" class="menu-controls-pc">
                     WASD · MOVE &nbsp;|&nbsp; MOUSE · LOOK &nbsp;|&nbsp; SHIFT · SPRINT &nbsp;|&nbsp; E · INTERACT &nbsp;|&nbsp; TAB · INVENTORY &nbsp;|&nbsp; F · FLASHLIGHT &nbsp;|&nbsp; C · CROUCH
+                </div>
+                <div id="menu-controls-m" class="menu-controls-mobile hidden">
+                    LEFT THUMB · MOVE &nbsp;|&nbsp; RIGHT DRAG · LOOK &nbsp;|&nbsp; RUN · SPRINT &nbsp;|&nbsp; E · INTERACT &nbsp;|&nbsp; 🎒 · INVENTORY
                 </div>
             </div>
         </div>
@@ -113,9 +116,18 @@
         <div id="options-screen" class="hidden">
             <div id="options-inner">
                 <div id="options-title">OPTIONS</div>
+                <div class="opt-row">
+                    <label>PLATFORM</label>
+                    <div id="platform-toggle">
+                        <button id="opt-pc"     class="ptoggle">🖥 PC</button>
+                        <button id="opt-mobile" class="ptoggle">📱 MOBILE</button>
+                    </div>
+                </div>
+                <div class="opt-divider"></div>
                 <div class="opt-row"><label>MASTER VOLUME</label><input type="range" id="opt-vol" min="0" max="100" value="70"></div>
                 <div class="opt-row"><label>MUSIC VOLUME</label><input type="range" id="opt-music" min="0" max="100" value="50"></div>
-                <div class="opt-row"><label>MOUSE SENSITIVITY</label><input type="range" id="opt-sens" min="1" max="20" value="8"></div>
+                <div class="opt-row opt-pc-only"><label>MOUSE SENSITIVITY</label><input type="range" id="opt-sens" min="1" max="20" value="8"></div>
+                <div class="opt-row opt-mobile-only"><label>LOOK SENSITIVITY</label><input type="range" id="opt-touch-sens" min="1" max="20" value="8"></div>
                 <div class="opt-row"><label>VHS EFFECTS</label><input type="checkbox" id="opt-vhs" checked></div>
                 <div class="opt-row"><label>FOG DENSITY</label><input type="range" id="opt-fog" min="1" max="10" value="5"></div>
                 <button id="btn-close-opts" class="mbtn">CLOSE</button>
@@ -133,6 +145,41 @@
         </div>
 
     </div><!-- end ui-overlay -->
+
+    <!-- Mobile controls — shown only on touch devices / mobile mode -->
+    <div id="mobile-controls" class="hidden">
+
+        <!-- Left half: virtual joystick zone -->
+        <div id="joy-zone">
+            <div id="joy-base">
+                <div id="joy-ring"></div>
+                <div id="joy-stick"></div>
+            </div>
+        </div>
+
+        <!-- Right half: camera look zone -->
+        <div id="look-zone"></div>
+
+        <!-- Bottom-left action row -->
+        <div id="m-btns-left">
+            <button id="m-sprint"  class="m-btn m-btn-hold"   aria-label="Sprint">RUN</button>
+            <button id="m-crouch"  class="m-btn m-btn-toggle" aria-label="Crouch">LOW</button>
+        </div>
+
+        <!-- Bottom-right action row -->
+        <div id="m-btns-right">
+            <button id="m-attack"    class="m-btn m-btn-primary"  aria-label="Attack">⚔</button>
+            <button id="m-interact"  class="m-btn"                aria-label="Interact">E</button>
+            <button id="m-flashlight"class="m-btn"                aria-label="Flashlight">🔦</button>
+        </div>
+
+        <!-- Top-right shortcuts -->
+        <div id="m-btns-top">
+            <button id="m-inventory" class="m-btn m-btn-sm" aria-label="Inventory">🎒</button>
+            <button id="m-pause"     class="m-btn m-btn-sm" aria-label="Pause">⏸</button>
+        </div>
+
+    </div><!-- end mobile-controls -->
 
     <div id="pointer-msg">CLICK TO PLAY</div>
 </div><!-- end game-container -->

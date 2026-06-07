@@ -10,6 +10,7 @@ import { DisturbanceSystem } from './disturbance.js';
 import { WorldItem, Inventory, ITEMS } from './items.js';
 import { EffectsSystem } from './effects.js';
 import { UI } from './ui.js';
+import { TouchControls, detectMobile } from './touch.js';
 
 const STATES = {
   MENU: 'menu',
@@ -43,6 +44,10 @@ export class Game {
     this.inventory = new Inventory();
     this.effects = new EffectsSystem(this.vhsCanvas);
     this.ui = new UI();
+
+    // Platform detection + touch controls
+    this.touchControls = new TouchControls(null, action => this._onTouchAction(action));
+    this._initPlatform();
 
     this.lastTime = 0;
     this.animFrame = null;
@@ -80,6 +85,60 @@ export class Game {
     this._setupCanvas();
     this.ui.showState('menu');
     this.loop = this.loop.bind(this);
+  }
+
+  _initPlatform() {
+    const mobile = detectMobile();
+    this.ui.setPlatform(mobile);
+    this._applyPlatform(mobile);
+
+    // React to manual toggle in options
+    this.ui.on('platform_change', ({ isMobile }) => this._applyPlatform(isMobile));
+
+    // Re-detect on resize (e.g. rotating device, or shrinking browser window)
+    window.addEventListener('resize', () => {
+      // Only auto-switch if user hasn't manually overridden
+      if (!this._platformManuallySet) {
+        const m = detectMobile();
+        if (m !== this.ui.isMobile) {
+          this.ui.setPlatform(m);
+          this._applyPlatform(m);
+        }
+      }
+    });
+  }
+
+  _applyPlatform(isMobile) {
+    this._platformManuallySet = true;
+    if (isMobile) {
+      this.touchControls.player = this.player; // may be null during menu, wired in loadLevel
+      this.touchControls.enable();
+      // Mobile: no pointer lock
+    } else {
+      this.touchControls.disable();
+    }
+
+    // Update options sense slider reactivity
+    document.getElementById('opt-touch-sens')?.addEventListener('input', (e) => {
+      this.touchControls.setLookSensitivity(parseInt(e.target.value));
+    });
+  }
+
+  _onTouchAction(action) {
+    switch(action) {
+      case 'attack':    this.swingWeapon(); break;
+      case 'interact':  this.interact();    break;
+      case 'flashlight':
+        if (this.player) { this.player.toggleFlashlight(); this.audio.playFlashlightToggle(this.player.flashlightOn); }
+        break;
+      case 'inventory':
+        if (this.state === STATES.PLAYING) this.ui.toggleInventory(this.inventory);
+        break;
+      case 'pause':
+        if (this.state === STATES.PLAYING) this.pause();
+        else if (this.state === STATES.PAUSED) this.resume();
+        break;
+    }
   }
 
   _setupCanvas() {
@@ -165,13 +224,15 @@ export class Game {
       }
     });
 
-    // Pointer lock
+    // Pointer lock (PC only — skipped on mobile)
     document.addEventListener('click', () => {
+      if (this.ui.isMobile) return;
       if (this.state === STATES.PLAYING && !document.pointerLockElement) {
         document.body.requestPointerLock();
       }
     });
     document.addEventListener('pointerlockchange', () => {
+      if (this.ui.isMobile) return;
       const locked = !!document.pointerLockElement;
       const msg = document.getElementById('pointer-msg');
       if (msg) msg.classList.toggle('hide', locked);
@@ -230,7 +291,11 @@ export class Game {
 
     // Create player
     this.player = new Player(this.map.spawnX, this.map.spawnY);
-    this.player.sensitivity = this.ui.getOptions().sensitivity || 0.0024;
+    const opts0 = this.ui.getOptions();
+    this.player.sensitivity = opts0.sensitivity || 0.0024;
+    // Wire touch controls to new player
+    this.touchControls.player = this.player;
+    this.touchControls.setLookSensitivity(opts0.touchSens || 8);
 
     this.disturbance.reset();
     this.events = new EventSystem();
@@ -253,7 +318,11 @@ export class Game {
 
     this.state = STATES.PLAYING;
     this.ui.showState('playing');
-    document.body.requestPointerLock?.();
+    if (!this.ui.isMobile) {
+      document.body.requestPointerLock?.();
+    } else {
+      this.touchControls.enable();
+    }
 
     // Start music
     this.audio.setMusicState('calm');
@@ -290,7 +359,8 @@ export class Game {
     if (this.state !== STATES.PAUSED) return;
     this.state = STATES.PLAYING;
     this.ui.showState('playing');
-    document.body.requestPointerLock?.();
+    if (!this.ui.isMobile) document.body.requestPointerLock?.();
+    else this.touchControls.enable();
     this.audio.resume();
     this.lastTime = performance.now();
     this.animFrame = requestAnimationFrame(this.loop);
@@ -332,7 +402,8 @@ export class Game {
     this.inSaveRoom = false;
     this.state = STATES.PLAYING;
     this.ui.showState('playing');
-    document.body.requestPointerLock?.();
+    if (!this.ui.isMobile) document.body.requestPointerLock?.();
+    else this.touchControls.enable();
     this.audio.setMusicState('calm');
   }
 
