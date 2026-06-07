@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>THE BACKROOMS</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+    <canvas id="vhsCanvas"></canvas>
+
+    <div id="ui-overlay">
+
+        <!-- HUD -->
+        <div id="hud" class="hidden">
+            <div id="crosshair"><div></div><div></div></div>
+            <div id="interact-prompt"></div>
+            <div id="event-notify"></div>
+
+            <div id="hud-left">
+                <div class="bar-label">HEALTH</div>
+                <div class="bar-wrap"><div id="health-bar" class="bar green"></div></div>
+                <div class="bar-label">STAMINA</div>
+                <div class="bar-wrap"><div id="stamina-bar" class="bar yellow"></div></div>
+                <div class="bar-label">SANITY</div>
+                <div class="bar-wrap"><div id="sanity-bar" class="bar blue"></div></div>
+            </div>
+
+            <div id="hud-right">
+                <div class="bar-label">LIGHT</div>
+                <div class="bar-wrap"><div id="light-bar" class="bar white"></div></div>
+                <div class="bar-label" id="disturb-label">CALM</div>
+                <div class="bar-wrap"><div id="disturb-bar" class="bar red"></div></div>
+            </div>
+
+            <div id="hotbar">
+                <div class="hotslot" id="slot0"><span class="slot-num">1</span></div>
+                <div class="hotslot" id="slot1"><span class="slot-num">2</span></div>
+                <div class="hotslot" id="slot2"><span class="slot-num">3</span></div>
+                <div class="hotslot active" id="slot3"><span class="slot-num">4</span></div>
+                <div class="hotslot" id="slot4"><span class="slot-num">5</span></div>
+            </div>
+
+            <div id="level-info">LEVEL <span id="level-num">01</span></div>
+        </div>
+
+        <!-- Inventory -->
+        <div id="inventory" class="hidden">
+            <div id="inv-panel">
+                <div id="inv-title">INVENTORY</div>
+                <div id="inv-grid"></div>
+                <div id="inv-info">
+                    <div id="inv-item-name"></div>
+                    <div id="inv-item-desc"></div>
+                    <div id="inv-item-actions"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Menu -->
+        <div id="main-menu">
+            <div id="menu-scanlines"></div>
+            <div id="menu-grain"></div>
+            <div id="menu-inner">
+                <div id="title-block">
+                    <div id="title-pre">ANTHROPIC ENTERTAINMENT</div>
+                    <h1 id="game-title">THE<br>BACKROOMS</h1>
+                    <div id="title-sub">LEVEL ∞ &nbsp;·&nbsp; DO NOT LOOK BACK</div>
+                </div>
+                <div id="menu-btns">
+                    <button id="btn-new" class="mbtn">▶ NEW GAME</button>
+                    <button id="btn-continue" class="mbtn hidden">▶ CONTINUE</button>
+                    <button id="btn-options" class="mbtn">⚙ OPTIONS</button>
+                </div>
+                <div id="menu-controls">
+                    WASD · MOVE &nbsp;|&nbsp; MOUSE · LOOK &nbsp;|&nbsp; SHIFT · SPRINT &nbsp;|&nbsp; E · INTERACT &nbsp;|&nbsp; TAB · INVENTORY &nbsp;|&nbsp; F · FLASHLIGHT &nbsp;|&nbsp; C · CROUCH
+                </div>
+            </div>
+        </div>
+
+        <!-- Death Screen -->
+        <div id="death-screen" class="hidden">
+            <div id="death-inner">
+                <div id="death-title">YOU HAVE BEEN CLAIMED</div>
+                <div id="death-msg"></div>
+                <button id="btn-respawn" class="mbtn">▶ TRY AGAIN</button>
+                <button id="btn-menu" class="mbtn">◀ MAIN MENU</button>
+            </div>
+        </div>
+
+        <!-- Save Room -->
+        <div id="save-screen" class="hidden">
+            <div id="save-inner">
+                <div id="save-title">SAFE ROOM</div>
+                <div id="save-text">The air feels different here.<br>A moment of clarity in infinite madness.</div>
+                <button id="btn-save" class="mbtn">💾 SAVE GAME</button>
+                <button id="btn-leave-save" class="mbtn">CONTINUE</button>
+            </div>
+        </div>
+
+        <!-- Loading Screen -->
+        <div id="loading-screen" class="hidden">
+            <div id="load-inner">
+                <div id="load-text">GENERATING LEVEL…</div>
+                <div id="load-bar-wrap"><div id="load-bar"></div></div>
+                <div id="load-hint"></div>
+            </div>
+        </div>
+
+        <!-- Options -->
+        <div id="options-screen" class="hidden">
+            <div id="options-inner">
+                <div id="options-title">OPTIONS</div>
+                <div class="opt-row"><label>MASTER VOLUME</label><input type="range" id="opt-vol" min="0" max="100" value="70"></div>
+                <div class="opt-row"><label>MUSIC VOLUME</label><input type="range" id="opt-music" min="0" max="100" value="50"></div>
+                <div class="opt-row"><label>MOUSE SENSITIVITY</label><input type="range" id="opt-sens" min="1" max="20" value="8"></div>
+                <div class="opt-row"><label>VHS EFFECTS</label><input type="checkbox" id="opt-vhs" checked></div>
+                <div class="opt-row"><label>FOG DENSITY</label><input type="range" id="opt-fog" min="1" max="10" value="5"></div>
+                <button id="btn-close-opts" class="mbtn">CLOSE</button>
+            </div>
+        </div>
+
+        <!-- Pause -->
+        <div id="pause-screen" class="hidden">
+            <div id="pause-inner">
+                <div id="pause-title">PAUSED</div>
+                <button id="btn-resume" class="mbtn">▶ RESUME</button>
+                <button id="btn-options2" class="mbtn">⚙ OPTIONS</button>
+                <button id="btn-menu2" class="mbtn">◀ MAIN MENU</button>
+            </div>
+        </div>
+
+    </div><!-- end ui-overlay -->
+
+    <div id="pointer-msg">CLICK TO PLAY</div>
+</div><!-- end game-container -->
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

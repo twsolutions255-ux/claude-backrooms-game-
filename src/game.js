@@ -1,0 +1,683 @@
+// Main game controller — state machine, update loop, all systems
+import { Renderer } from './renderer.js';
+import { GameMap, T } from './map.js';
+import { generateLevel } from './rooms.js';
+import { Player } from './player.js';
+import { Entity } from './entity.js';
+import { AudioSystem } from './audio.js';
+import { EventSystem } from './events.js';
+import { DisturbanceSystem } from './disturbance.js';
+import { WorldItem, Inventory, ITEMS } from './items.js';
+import { EffectsSystem } from './effects.js';
+import { UI } from './ui.js';
+
+const STATES = {
+  MENU: 'menu',
+  LOADING: 'loading',
+  PLAYING: 'playing',
+  PAUSED: 'paused',
+  DEAD: 'dead',
+  SAVE_ROOM: 'save',
+  TRANSITION: 'transition',
+};
+
+export class Game {
+  constructor() {
+    this.canvas = document.getElementById('gameCanvas');
+    this.ctx = this.canvas.getContext('2d');
+    this.vhsCanvas = document.getElementById('vhsCanvas');
+
+    this.state = STATES.MENU;
+    this.level = 1;
+    this.score = 0;
+
+    this.map = null;
+    this.player = null;
+    this.entities = [];
+    this.worldItems = [];
+
+    this.renderer = new Renderer(this.canvas);
+    this.audio = new AudioSystem();
+    this.events = new EventSystem();
+    this.disturbance = new DisturbanceSystem();
+    this.inventory = new Inventory();
+    this.effects = new EffectsSystem(this.vhsCanvas);
+    this.ui = new UI();
+
+    this.lastTime = 0;
+    this.animFrame = null;
+
+    // Gameplay flags
+    this.isChaseActive = false;
+    this.chaseTimer = 0;
+    this.inSaveRoom = false;
+    this.interactTarget = null;
+    this.motionSensorActive = false;
+    this.motionSensorTimer = 0;
+    this.placedLanterns = [];
+    this.flashbangActive = false;
+    this.flashbangTimer = 0;
+    this.entityFlashTimer = 0;
+
+    // Save data
+    this.saveData = null;
+
+    // Death messages
+    this.DEATH_MESSAGES = [
+      'You were too slow.',
+      'The darkness claimed you.',
+      'It caught up eventually.',
+      'You should have hidden.',
+      'The backrooms do not forgive.',
+      'Level ∞ has one more name now.',
+      'Nobody heard you scream.',
+      'You ran out of light.',
+      'Some doors should stay closed.',
+    ];
+
+    this._bindUIEvents();
+    this._bindGameInput();
+    this._setupCanvas();
+    this.ui.showState('menu');
+    this.loop = this.loop.bind(this);
+  }
+
+  _setupCanvas() {
+    const resize = () => {
+      this.canvas.style.width = '100vw';
+      this.canvas.style.height = '100vh';
+    };
+    resize();
+    window.addEventListener('resize', resize);
+  }
+
+  _bindUIEvents() {
+    this.ui.on('new_game', () => this.startNewGame());
+    this.ui.on('continue', () => this.continueSave());
+    this.ui.on('respawn', () => this.startNewGame());
+    this.ui.on('to_menu', () => this.toMenu());
+    this.ui.on('save', () => this.performSave());
+    this.ui.on('leave_save', () => this.leaveSaveRoom());
+    this.ui.on('pause', () => this.pause());
+    this.ui.on('resume', () => this.resume());
+    this.ui.on('use_item', ({ slot }) => this.useItem(slot));
+    this.ui.on('equip_weapon', ({ type }) => { this.inventory.equipWeapon(type); });
+    this.ui.on('drop_item', ({ slot }) => { this.inventory.remove(slot); });
+    this.ui.on('hotbar_select', ({ slot }) => { this.inventory.selectSlot(slot); });
+    this.ui.on('inventory_toggle', ({ open }) => {
+      if (this.player) {
+        if (open) document.exitPointerLock?.();
+        else if (this.state === STATES.PLAYING) document.body.requestPointerLock?.();
+      }
+    });
+
+    // Options changes
+    document.getElementById('opt-sens')?.addEventListener('input', (e) => {
+      if (this.player) this.player.sensitivity = (e.target.value / 10) * 0.003;
+    });
+    document.getElementById('opt-vol')?.addEventListener('input', (e) => {
+      this.audio.setMasterVolume(e.target.value / 100);
+    });
+    document.getElementById('opt-music')?.addEventListener('input', (e) => {
+      this.audio.setMusicVolume(e.target.value / 100);
+    });
+    document.getElementById('opt-vhs')?.addEventListener('change', (e) => {
+      this.effects.enabled = e.target.checked;
+    });
+    document.getElementById('opt-fog')?.addEventListener('input', (e) => {
+      if (this.renderer) this.renderer.fogDensity = (e.target.value / 10) * 0.12;
+    });
+  }
+
+  _bindGameInput() {
+    document.addEventListener('keydown', e => {
+      if (this.state !== STATES.PLAYING) return;
+
+      // E to interact
+      if (e.code === 'KeyE') this.interact();
+
+      // Left click / Q to swing weapon
+      if (e.code === 'KeyQ' || e.code === 'KeyV') this.swingWeapon();
+
+      // R to use selected hotbar item
+      if (e.code === 'KeyR') {
+        const slot = this.inventory.selectedSlot;
+        this.useItem(slot);
+      }
+
+      // 1-5 hotbar
+      if (e.code >= 'Digit1' && e.code <= 'Digit5') {
+        this.inventory.selectSlot(parseInt(e.code.slice(-1)) - 1);
+      }
+
+      // G throw flash grenade
+      if (e.code === 'KeyG') {
+        const slot = this.inventory.slots.findIndex(s => s && s.type === 'flash_grenade');
+        if (slot >= 0) this.useItem(slot);
+      }
+    });
+
+    // Mouse click to swing
+    document.addEventListener('mousedown', e => {
+      if (this.state !== STATES.PLAYING) return;
+      if (e.button === 0 && document.pointerLockElement) {
+        this.swingWeapon();
+      }
+    });
+
+    // Pointer lock
+    document.addEventListener('click', () => {
+      if (this.state === STATES.PLAYING && !document.pointerLockElement) {
+        document.body.requestPointerLock();
+      }
+    });
+    document.addEventListener('pointerlockchange', () => {
+      const locked = !!document.pointerLockElement;
+      const msg = document.getElementById('pointer-msg');
+      if (msg) msg.classList.toggle('hide', locked);
+    });
+  }
+
+  // ── GAME STATE MANAGEMENT ─────────────────────────────────────────────────
+  async startNewGame() {
+    await this.audio.init();
+    this.audio.resume();
+    this.level = 1;
+    this.score = 0;
+    this.inventory = new Inventory();
+    // Give starting items
+    this.inventory.add('battery', 2);
+    this.inventory.add('almond_water', 1);
+    this.disturbance.reset();
+    await this.loadLevel(1);
+  }
+
+  async continueSave() {
+    if (!this.saveData) return;
+    await this.audio.init();
+    this.audio.resume();
+    this.level = this.saveData.level || 1;
+    // Restore inventory
+    if (this.saveData.inventory) {
+      this.inventory = new Inventory();
+      for (const s of this.saveData.inventory) {
+        if (s) this.inventory.slots[s.i] = { type: s.type, count: s.count };
+      }
+    }
+    await this.loadLevel(this.level);
+  }
+
+  async loadLevel(level) {
+    this.state = STATES.LOADING;
+    this.ui.showState('loading');
+    await new Promise(r => setTimeout(r, 100));
+
+    this.ui.setLoadProgress(10, 'GENERATING MAP…');
+    await new Promise(r => setTimeout(r, 100));
+
+    this.map = generateLevel(level);
+    this.ui.setLoadProgress(40, 'PLACING ENTITIES…');
+    await new Promise(r => setTimeout(r, 100));
+
+    // Create entities
+    this.entities = this.map.entities.map(e => new Entity(e.x, e.y, e.type));
+
+    // Create world items
+    this.worldItems = this.map.items.map(i => new WorldItem(i.x, i.y, i.type));
+
+    this.ui.setLoadProgress(60, 'WIRING SYSTEMS…');
+    await new Promise(r => setTimeout(r, 100));
+
+    // Create player
+    this.player = new Player(this.map.spawnX, this.map.spawnY);
+    this.player.sensitivity = this.ui.getOptions().sensitivity || 0.0024;
+
+    this.disturbance.reset();
+    this.events = new EventSystem();
+    this._wireEvents();
+
+    // Placed lanterns reset
+    this.placedLanterns = [];
+    this.isChaseActive = false;
+    this.inSaveRoom = false;
+
+    // Apply options
+    const opts = this.ui.getOptions();
+    this.effects.enabled = opts.vhsEnabled;
+    this.renderer.fogDensity = opts.fogDensity || 0.09;
+
+    this.ui.setLoadProgress(80, 'LOADING TEXTURES…');
+    await new Promise(r => setTimeout(r, 150));
+    this.ui.setLoadProgress(100, 'READY');
+    await new Promise(r => setTimeout(r, 300));
+
+    this.state = STATES.PLAYING;
+    this.ui.showState('playing');
+    document.body.requestPointerLock?.();
+
+    // Start music
+    this.audio.setMusicState('calm');
+
+    // Begin loop
+    this.lastTime = performance.now();
+    if (this.animFrame) cancelAnimationFrame(this.animFrame);
+    this.animFrame = requestAnimationFrame(this.loop);
+  }
+
+  _wireEvents() {
+    this.events.on('force_chase', () => {
+      if (this.entities.length > 0) {
+        const nearest = this.entities[0];
+        nearest.state = 'chase';
+        nearest.lastKnownX = this.player.x;
+        nearest.lastKnownY = this.player.y;
+      }
+    });
+    this.events.on('fake_entity', () => {
+      if (this.player) this.player.loseSanity(10);
+    });
+  }
+
+  pause() {
+    if (this.state !== STATES.PLAYING) return;
+    this.state = STATES.PAUSED;
+    this.ui.showState('paused');
+    document.exitPointerLock?.();
+    this.audio.suspend();
+  }
+
+  resume() {
+    if (this.state !== STATES.PAUSED) return;
+    this.state = STATES.PLAYING;
+    this.ui.showState('playing');
+    document.body.requestPointerLock?.();
+    this.audio.resume();
+    this.lastTime = performance.now();
+    this.animFrame = requestAnimationFrame(this.loop);
+  }
+
+  toMenu() {
+    if (this.animFrame) { cancelAnimationFrame(this.animFrame); this.animFrame = null; }
+    this.state = STATES.MENU;
+    this.ui.showState('menu');
+    document.exitPointerLock?.();
+    this.audio.setMusicState('none');
+    if (this.saveData) this.ui.enableContinueButton();
+  }
+
+  playerDie() {
+    if (this.state === STATES.DEAD) return;
+    this.state = STATES.DEAD;
+    document.exitPointerLock?.();
+    this.audio.setMusicState('none');
+    const msg = this.DEATH_MESSAGES[Math.floor(Math.random() * this.DEATH_MESSAGES.length)];
+    this.ui.showDeath(msg);
+    if (this.animFrame) { cancelAnimationFrame(this.animFrame); this.animFrame = null; }
+  }
+
+  performSave() {
+    this.saveData = {
+      level: this.level,
+      inventory: this.inventory.slots
+        .map((s, i) => s ? { i, type: s.type, count: s.count } : null)
+        .filter(Boolean),
+    };
+    try { localStorage.setItem('backrooms_save', JSON.stringify(this.saveData)); } catch(e) {}
+    this.ui.enableContinueButton();
+    this.audio.playSave();
+    if (this.player) this.player.restoreAll();
+  }
+
+  leaveSaveRoom() {
+    this.inSaveRoom = false;
+    this.state = STATES.PLAYING;
+    this.ui.showState('playing');
+    document.body.requestPointerLock?.();
+    this.audio.setMusicState('calm');
+  }
+
+  enterSaveRoom() {
+    if (this.inSaveRoom) return;
+    this.inSaveRoom = true;
+    this.state = STATES.SAVE_ROOM;
+    this.ui.showState('save');
+    document.exitPointerLock?.();
+    this.events.handleSafeRoom(this.audio);
+    if (this.player) this.player.restoreAll();
+    this.disturbance.level = Math.max(0, this.disturbance.level - 0.5);
+  }
+
+  nextLevel() {
+    this.level++;
+    this.inventory.add('battery');
+    this.loadLevel(this.level);
+  }
+
+  // ── INTERACTION ────────────────────────────────────────────────────────────
+  interact() {
+    if (!this.player || !this.interactTarget) return;
+    const t = this.interactTarget;
+    switch(t.type) {
+      case 'door': this._toggleDoor(t.mx, t.my); break;
+      case 'locker': this._toggleLocker(t.mx, t.my); break;
+      case 'item': this._pickupItem(t.item); break;
+      case 'save_room': this.enterSaveRoom(); break;
+      case 'exit': this.nextLevel(); break;
+      case 'pushable': this._pushObject(t.mx, t.my); break;
+    }
+  }
+
+  _toggleDoor(mx, my) {
+    const tile = this.map.get(mx, my);
+    if (tile === T.DOOR_CLOSED) {
+      this.map.set(mx, my, T.DOOR_OPEN);
+      this.audio.playDoorOpen();
+      this.disturbance.addNoise(0.1, mx, my);
+    } else if (tile === T.DOOR_OPEN) {
+      this.map.set(mx, my, T.DOOR_CLOSED);
+      this.audio.playDoorSlam();
+      this.disturbance.addNoise(0.15, mx, my);
+    }
+  }
+
+  _toggleLocker(mx, my) {
+    const tile = this.map.get(mx, my);
+    if (tile === T.LOCKER_CLOSED) {
+      if (this.player.isHiding) {
+        // Exit locker
+        this.player.isHiding = false;
+        this.map.set(mx, my, T.LOCKER_OPEN);
+        this.audio.playDoorOpen();
+      } else {
+        // Hide in locker
+        this.player.isHiding = true;
+        this.map.set(mx, my, T.LOCKER_OPEN);
+        this.audio.playDoorOpen();
+        this.events.pendingNotifications.push({ text: 'Hiding...', duration: 2 });
+      }
+    } else if (tile === T.LOCKER_OPEN) {
+      this.map.set(mx, my, T.LOCKER_CLOSED);
+      this.audio.playDoorSlam();
+      this.player.isHiding = false;
+    }
+  }
+
+  _pickupItem(item) {
+    if (item.collected) return;
+    const added = this.inventory.add(item.type);
+    if (added) {
+      item.collected = true;
+      this.audio.playPickup();
+      const def = ITEMS[item.type];
+      if (def) {
+        this.events.pendingNotifications.push({ text: `Picked up: ${def.name}`, duration: 3 });
+      }
+    } else {
+      this.events.pendingNotifications.push({ text: 'Inventory full!', duration: 2 });
+    }
+  }
+
+  _pushObject(mx, my) {
+    // Simple push — try to move the object in the direction the player is facing
+    const dx = Math.round(this.player.dirX), dy = Math.round(this.player.dirY);
+    const nx = mx + dx, ny = my + dy;
+    if (!this.map.isSolid(nx, ny)) {
+      const tile = this.map.get(mx, my);
+      this.map.set(mx, my, T.EMPTY);
+      this.map.set(nx, ny, tile);
+      this.audio.playDoorSlam();
+      this.disturbance.addNoise(0.12, mx, my);
+    }
+  }
+
+  useItem(slot) {
+    const used = this.inventory.use(slot, this.player, this);
+    if (used) {
+      const slot2 = this.inventory.slots[slot];
+      if (!slot2) return; // used up
+      const def = ITEMS[slot2?.type];
+      if (def) this.audio.playPickup();
+    }
+  }
+
+  swingWeapon() {
+    if (!this.inventory.hasWeapon) return;
+    if (this.inventory.isSwinging) return;
+    const hit = this.inventory.swing(this.player, this.entities, this.map);
+    this.audio.playMeleeSwing();
+    this.disturbance.addCombat();
+    if (hit) {
+      this.audio.playEntityScream(3);
+    }
+  }
+
+  triggerFlashGrenade() {
+    this.flashbangActive = true;
+    this.flashbangTimer = 1.2;
+    this.effects.triggerFlashbang();
+    this.audio.playFlashGrenade();
+    // Stun all nearby entities
+    for (const e of this.entities) {
+      if (!e.alive) continue;
+      const dist = e.distanceTo(this.player.x, this.player.y);
+      if (dist < 8) {
+        e.state = 'idle';
+        e.path = [];
+        e.stateTimer = 0;
+      }
+    }
+    this.disturbance.addNoise(0.4, this.player.x, this.player.y);
+  }
+
+  activateMotionSensor() {
+    this.motionSensorActive = true;
+    this.motionSensorTimer = 120; // 2 minutes
+    this.events.pendingNotifications.push({ text: 'Motion sensor active', duration: 3 });
+  }
+
+  placeLantern(x, y) {
+    this.placedLanterns.push({ x, y, timer: 180, radius: 6, intensity: 0.9 });
+    this.map.addLight(x, y, 6, 0.9, 1.0, 0.9, 0.7);
+  }
+
+  // ── MAIN LOOP ─────────────────────────────────────────────────────────────
+  loop(timestamp) {
+    if (this.state !== STATES.PLAYING && this.state !== STATES.SAVE_ROOM) return;
+    this.animFrame = requestAnimationFrame(this.loop);
+
+    const dt = Math.min(0.05, (timestamp - this.lastTime) / 1000);
+    this.lastTime = timestamp;
+
+    this.update(dt);
+    this.render();
+  }
+
+  update(dt) {
+    if (!this.player || !this.map) return;
+
+    // Player
+    this.player.update(dt, this.map, this.disturbance);
+
+    // Check player death
+    if (this.player.health <= 0) {
+      this.playerDie();
+      return;
+    }
+
+    // Inventory
+    this.inventory.update(dt);
+
+    // Entities
+    for (const e of this.entities) {
+      e.update(dt, this.map, this.player, this.disturbance);
+    }
+
+    // World items
+    for (const item of this.worldItems) item.update(dt);
+
+    // Placed lanterns
+    this.map.lightSources = this.map.lightSources.filter(src => !src._lantern || src._timer > 0);
+    for (const l of this.placedLanterns) {
+      l.timer -= dt;
+    }
+    this.placedLanterns = this.placedLanterns.filter(l => l.timer > 0);
+
+    // Systems
+    this.map.updateLights(dt);
+    this.disturbance.update(dt, this.player, this.entities);
+    this.events.update(dt, this.player, this.disturbance, this.audio, this.renderer);
+    this.effects.update(dt, this.player, this.events, this.renderer);
+    this.ui.update(dt, this);
+
+    // Chase state detection
+    const isChasing = this.entities.some(e => e.alive && e.isChasing());
+    if (isChasing && !this.isChaseActive) {
+      this.isChaseActive = true;
+      this.audio.setMusicState('chase');
+      this.renderer.emergencyMode = true;
+      this.effects.setChaseMode(true);
+      this.player.shake(0.5, 0.3);
+      this.chaseTimer = 0;
+    } else if (!isChasing && this.isChaseActive) {
+      this.chaseTimer += dt;
+      if (this.chaseTimer > 5) {
+        this.isChaseActive = false;
+        this.renderer.emergencyMode = false;
+        this.effects.setChaseMode(false);
+        this.audio.setMusicState(this.inSaveRoom ? 'save' : 'calm');
+      }
+    } else if (isChasing) {
+      this.chaseTimer = 0;
+    }
+
+    // Motion sensor beep
+    if (this.motionSensorActive) {
+      this.motionSensorTimer -= dt;
+      const nearEntity = this.entities.find(e => e.alive && e.distanceTo(this.player.x, this.player.y) < 10);
+      if (nearEntity && !this._motionBeepTimer) {
+        this._motionBeepTimer = 0.5;
+      }
+      if (this._motionBeepTimer) {
+        this._motionBeepTimer -= dt;
+        if (this._motionBeepTimer <= 0) { this._motionBeepTimer = null; }
+      }
+      if (this.motionSensorTimer <= 0) { this.motionSensorActive = false; }
+    }
+
+    // Tense music when nearby entity stalking
+    const isStalking = this.entities.some(e => e.alive && e.isStalking());
+    if (isStalking && !isChasing && this.audio._currentMusicState !== 'tense' && this.audio._currentMusicState !== 'chase') {
+      this.audio.setMusicState('tense');
+    } else if (!isChasing && !isStalking && this.audio._currentMusicState === 'tense') {
+      this.audio.setMusicState('calm');
+    }
+
+    // Renderer brightness from events
+    if (!this.events.activeEvents.has('light_flicker') && !this.events.activeEvents.has('power_outage')) {
+      this.renderer.brightness = 1.0;
+    }
+    if (this.events.activeEvents.has('power_outage')) {
+      // handled by event tick
+    }
+
+    // Flashlight
+    this.renderer.flashlightOn = this.player.flashlightOn && this.player.flashlightBattery > 0;
+    this.renderer.flashlightPower = (this.player.flashlightBattery / 100) * (this.player.flashlightOn ? 1 : 0);
+
+    // Detect interaction targets
+    this._detectInteractTarget();
+
+    // Check special tiles
+    this._checkSpecialTiles();
+
+    // Disturbance music
+    if (!isChasing && !isStalking) {
+      if (this.disturbance.isCritical && this.audio._currentMusicState !== 'tense') {
+        this.audio.setMusicState('tense');
+      }
+    }
+
+    // Audio update
+    this.audio.update(dt, this.player, this.entities, this.events);
+  }
+
+  _detectInteractTarget() {
+    if (!this.player) return;
+    this.interactTarget = null;
+    const reach = 1.4;
+    const px = this.player.x, py = this.player.y;
+    const dx = this.player.dirX, dy = this.player.dirY;
+    const tx = px + dx * reach, ty = py + dy * reach;
+    const mx = Math.floor(tx), my = Math.floor(ty);
+
+    const tile = this.map.get(mx, my);
+    if (tile === T.DOOR_CLOSED || tile === T.DOOR_OPEN) {
+      this.interactTarget = { type: 'door', mx, my, label: tile === T.DOOR_CLOSED ? 'OPEN DOOR' : 'CLOSE DOOR' };
+      return;
+    }
+    if (tile === T.LOCKER_CLOSED || tile === T.LOCKER_OPEN) {
+      this.interactTarget = {
+        type: 'locker', mx, my,
+        label: this.player.isHiding ? 'EXIT LOCKER' : 'HIDE IN LOCKER'
+      };
+      return;
+    }
+
+    // Items
+    for (const item of this.worldItems) {
+      if (item.collected) continue;
+      const idx = Math.abs(item.x - px), idy = Math.abs(item.y - py);
+      if (idx < reach && idy < reach) {
+        const def = ITEMS[item.type];
+        this.interactTarget = { type: 'item', item, label: def ? `PICK UP ${def.name.toUpperCase()}` : 'PICK UP' };
+        return;
+      }
+    }
+
+    // Special tile at player position
+    const pKey = `${Math.floor(px)},${Math.floor(py)}`;
+    const special = this.map.specialTiles.get(pKey);
+    if (special) {
+      if (special.type === 'save_room') {
+        this.interactTarget = { type: 'save_room', label: 'SAFE ROOM [E]' };
+        return;
+      }
+      if (special.type === 'exit') {
+        this.interactTarget = { type: 'exit', label: 'EXIT LEVEL [E]' };
+        return;
+      }
+    }
+  }
+
+  _checkSpecialTiles() {
+    if (!this.player) return;
+    const px = Math.floor(this.player.x), py = Math.floor(this.player.y);
+    const key = `${px},${py}`;
+    const special = this.map.specialTiles.get(key);
+    if (special && !this._visitedTiles) this._visitedTiles = new Set();
+    if (special && !this._visitedTiles.has(key)) {
+      this._visitedTiles.add(key);
+      this.events.handleSpecialRoom(special.type, this.player, this.audio, this.renderer);
+    }
+  }
+
+  render() {
+    if (!this.map || !this.player) return;
+    this.renderer.render(this.map, this.player, this.entities, this.worldItems);
+    // Minimap in top-left
+    this.renderer.renderMinimap(this.ctx, this.map, this.player, this.entities);
+    // VHS effects pass
+    this.effects.render(this.ctx);
+  }
+
+  // Load save on startup
+  loadSave() {
+    try {
+      const data = localStorage.getItem('backrooms_save');
+      if (data) {
+        this.saveData = JSON.parse(data);
+        this.ui.enableContinueButton();
+      }
+    } catch(e) {}
+  }
+}
