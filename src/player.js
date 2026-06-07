@@ -230,7 +230,9 @@ export class Player {
       // crouch toggle handled externally; touch hold overrides only if held
     }
 
-    const speedMult = this.isSprinting ? this.sprintMult : (this.isCrouching ? this.crouchMult : 1);
+    const staminaPenalty = this.isSprinting && this.stamina < 20 ? (1 - this.stamina / 20) * 0.35 : 0;
+    const effectiveSprintMult = this.sprintMult - staminaPenalty;
+    const speedMult = this.isSprinting ? effectiveSprintMult : (this.isCrouching ? this.crouchMult : 1);
     const spd = this.speed * speedMult;
 
     let targetVX = 0, targetVY = 0;

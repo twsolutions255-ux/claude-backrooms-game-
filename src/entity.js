@@ -143,6 +143,65 @@ export class Entity {
         this.erratic = true;
         this.sightFOV = Math.PI * 0.5;
         break;
+      case 'window_entity':
+        this.speed = 0;
+        this.chaseSpeed = 0;
+        this.stalkSpeed = 0;
+        this.attackRange = 1.8;
+        this.hearRange = 0;
+        this.sightRange = 0;
+        this.health = 9999;
+        this.stationary = true;
+        break;
+      case 'duller':
+        this.speed = 2.2;
+        this.chaseSpeed = 3.6;
+        this.stalkSpeed = 1.4;
+        this.attackRange = 1.2;
+        this.hearRange = 10;
+        this.sightRange = 10;
+        this.attacksFromBehind = true;
+        break;
+      case 'the_mangled':
+        this.speed = 2.4;
+        this.chaseSpeed = 3.8;
+        this.stalkSpeed = 1.8;
+        this.attackRange = 1.3;
+        this.hearRange = 28;
+        this.sightRange = 14;
+        this.unstoppable = true;
+        this.soundTracking = true;
+        this.lostTimeout = 30;
+        break;
+      case 'skin_stealer':
+        this.speed = 3.8;
+        this.chaseSpeed = 5.5;
+        this.stalkSpeed = 2.2;
+        this.attackRange = 1.2;
+        this.hearRange = 11;
+        this.sightRange = 11;
+        this.mimic = true;
+        break;
+      case 'animations':
+        this.speed = 4.6;
+        this.chaseSpeed = 6.8;
+        this.stalkSpeed = 2.5;
+        this.attackRange = 1.1;
+        this.hearRange = 12;
+        this.sightRange = 12;
+        this.nightOnly = true;
+        this.requiresDarkness = false;
+        this.state = STATE.DORMANT;
+        break;
+      case 'wretch':
+        this.speed = 2.8;
+        this.chaseSpeed = 4.4;
+        this.stalkSpeed = 1.6;
+        this.attackRange = 1.2;
+        this.hearRange = 8;
+        this.sightRange = 8;
+        this.requiresDarkness = true;
+        break;
       case 'fast':
         this.speed = 4.2;
         this.chaseSpeed = 6.5;
@@ -175,6 +234,7 @@ export class Entity {
   }
 
   hit(knockbackX, knockbackY) {
+    if (this.unstoppable) return; // the_mangled ignores knockback
     this.hitTimer = 0.4;
     this.hitX = knockbackX;
     this.hitY = knockbackY;
@@ -196,6 +256,26 @@ export class Entity {
     const lightLevel = context.lightLevel ?? 1.0;
     const playerFlashlight = context.playerFlashlight ?? true;
 
+    // ── STATIONARY entities (window_entity) ───────────────────────────────
+    if (this.stationary) {
+      const dist = Math.hypot(player.x - this.x, player.y - this.y);
+      if (dist <= this.attackRange) {
+        player.damage(100, 'window_entity');
+      }
+      return;
+    }
+
+    // ── NIGHT-ONLY entities (animations) — dormant during day ─────────────
+    if (this.nightOnly) {
+      const isNight = this._game?.isNight ?? false;
+      if (!isNight) {
+        if (this.state !== STATE.DORMANT) { this.state = STATE.DORMANT; this.path = []; }
+        return;
+      } else if (this.state === STATE.DORMANT) {
+        this.state = STATE.IDLE;
+      }
+    }
+
     // ── SMILER: dormant in light, active in darkness ───────────────────────
     if (this.requiresDarkness) {
       const isDark = lightLevel < 0.18;
@@ -205,6 +285,18 @@ export class Entity {
         this.state = STATE.IDLE;
       }
       if (this.state === STATE.DORMANT) return;
+    }
+
+    // ── PARTYGOER: player crouching under TABLE tile = undetectable ────────
+    if (this.type === 'partygoer' && this._game?.player?.isCrouching) {
+      const px = Math.floor(this._game.player.x), py = Math.floor(this._game.player.y);
+      const nearTable = (map.get(px, py) === 20) || (map.get(px, py + 1) === 20) ||
+                        (map.get(px + 1, py) === 20) || (map.get(px - 1, py) === 20);
+      if (nearTable) {
+        this.target = null;
+        if (this.state === STATE.CHASE || this.state === STATE.STALK) { this.state = STATE.LOST; this.lostTimer = 0; }
+        return;
+      }
     }
 
     // ── FACELING PASSIVE: wander and ignore player ─────────────────────────

@@ -71,13 +71,90 @@ const LEVEL_THEMES = {
     name: 'Level Fun — The Party',
     wallTypes: [T.WALL_PARTY],
     floorType: T.FLOOR_PARTY,
-    ambientBase: 0.72,     // bright and cheerful — horror is the silence after the music cuts
+    ambientBase: 0.72,
     fogDensity: 0.018,
     fogColorR: 0.06, fogColorG: 0.06, fogColorB: 0.08,
     entityTypes: ['partygoer', 'partygoer', 'partygoer'],
-    roomPool: ['party_main', 'party_main', 'party_corridor'],
+    roomPool: ['party_main', 'party_main', 'party_corridor', 'party_table_room'],
     floorTexName: 'partyFloor',
     ambientProfile: 'party',
+  },
+  office: {
+    name: 'Level 4 — The Abandoned Office',
+    wallTypes: [T.WALL_PAPER, T.WALL_TILE],
+    floorType: T.FLOOR_CARPET,
+    ambientBase: 0.42,
+    fogDensity: 0.05,
+    fogColorR: 0.01, fogColorG: 0.01, fogColorB: 0.01,
+    entityTypes: ['hound', 'faceling', 'faceling', 'duller'],
+    roomPool: ['office_open_plan', 'office_corridor', 'office_open_plan', 'vending_room', 'boardroom', 'break_room'],
+    floorTexName: 'carpet',
+    ambientProfile: 'office',
+  },
+  suburbs: {
+    name: 'Level 9 — Darkened Suburbs',
+    wallTypes: [T.WALL_WOOD, T.WALL_BRICK],
+    floorType: T.FLOOR_ROAD,
+    ambientBase: 0.03,
+    fogDensity: 0.13,
+    fogColorR: 0.01, fogColorG: 0.01, fogColorB: 0.02,
+    entityTypes: ['hound', 'smiler', 'smiler', 'the_mangled', 'deathmoth', 'wretch'],
+    roomPool: ['suburb_road', 'house_interior', 'garage', 'suburb_road', 'cul_de_sac'],
+    floorTexName: 'concrete',
+    ambientProfile: 'suburbs',
+    shrinkingFog: true,
+  },
+  city: {
+    name: 'Level 11 — The Endless City',
+    wallTypes: [T.WALL_CONCRETE, T.WALL_BRICK, T.WALL_METAL],
+    floorType: T.FLOOR_CONCRETE,
+    ambientBase: 0.07,
+    fogDensity: 0.09,
+    fogColorR: 0.01, fogColorG: 0.02, fogColorB: 0.03,
+    entityTypes: ['faceling', 'faceling', 'hound'],
+    roomPool: ['city_block', 'city_block', 'skyscraper_lobby', 'apartment_floor', 'shop_interior'],
+    floorTexName: 'concrete',
+    ambientProfile: 'city',
+    smogSanityDrain: 0.4,
+  },
+  mall: {
+    name: 'Level 33 — The Infinite Mall',
+    wallTypes: [T.WALL_TILE, T.WALL_PAPER],
+    floorType: T.FLOOR_TILE,
+    ambientBase: 0.38,
+    fogDensity: 0.07,
+    fogColorR: 0.02, fogColorG: 0.02, fogColorB: 0.03,
+    entityTypes: ['partygoer', 'hound', 'smiler'],
+    roomPool: ['mall_atrium', 'store_interior', 'food_court', 'flooded_wing', 'arcade_room', 'mall_atrium'],
+    floorTexName: 'poolTile',
+    ambientProfile: 'mall',
+    distanceCorruption: true,
+  },
+  dreamcore: {
+    name: 'Level 94 — Dreamcore Hills',
+    wallTypes: [T.WALL_WOOD],
+    floorType: T.FLOOR_GRASS,
+    ambientBase: 0.78,
+    fogDensity: 0.03,
+    fogColorR: 0.05, fogColorG: 0.08, fogColorB: 0.10,
+    entityTypes: ['animations'],
+    roomPool: ['open_hills', 'dreamcore_house', 'van_stop', 'open_hills', 'water_tower', 'castle_approach'],
+    floorTexName: 'carpet',
+    ambientProfile: 'dreamcore',
+    dayNightCycle: true,
+  },
+  hospital: {
+    name: 'Level ! — Run For Your Life',
+    wallTypes: [T.WALL_TILE],
+    floorType: T.FLOOR_TILE,
+    ambientBase: 0.12,
+    fogDensity: 0.08,
+    fogColorR: 0.08, fogColorG: 0.00, fogColorB: 0.00,
+    entityTypes: ['smiler', 'partygoer'],
+    roomPool: ['hospital_corridor', 'ward', 'nurses_station'],
+    floorTexName: 'poolTile',
+    ambientProfile: 'hospital',
+    sprintLevel: true,
   },
 };
 
@@ -86,7 +163,14 @@ function getTheme(level) {
   if (level <= 4) return LEVEL_THEMES.warehouse;
   if (level === 5) return LEVEL_THEMES.pipes;
   if (level <= 7) return LEVEL_THEMES.electrical;
-  if (level === 8) return LEVEL_THEMES.poolrooms;
+  if (level <= 9) return LEVEL_THEMES.office;
+  if (level <= 11) return LEVEL_THEMES.suburbs;
+  if (level <= 13) return LEVEL_THEMES.city;
+  if (level <= 15) return LEVEL_THEMES.mall;
+  if (level <= 17) return LEVEL_THEMES.poolrooms;
+  if (level <= 19) return LEVEL_THEMES.dreamcore;
+  if (level === 20) return LEVEL_THEMES.party;
+  if (level === 21) return LEVEL_THEMES.hospital;
   return LEVEL_THEMES.party;
 }
 
@@ -328,6 +412,315 @@ function warehouse_flooded(map, x, y, w, h, theme) {
   return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
 }
 
+// ── OFFICE ROOM TEMPLATES ─────────────────────────────────────────────────────
+function office_open_plan(map, x, y, w, h, theme) {
+  map.carveRoom(x, y, w, h, pick(theme.wallTypes), theme.floorType, 1);
+  // Cubicle partition grid
+  for (let py2 = y + 3; py2 < y + h - 2; py2 += 4)
+    for (let px2 = x + 3; px2 < x + w - 2; px2 += 5)
+      if (Math.random() < 0.5) map.set(px2, py2, T.WALL_PAPER);
+  // Vending machine on a wall
+  if (w > 8) map.set(x + rng(2, w - 3), y + 1, T.VENDING_MACHINE);
+  map.addLight(x + w/2, y + h/2, 12, 0.8, 1.0, 1.0, 0.98, 1.0);
+  return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+}
+
+function office_corridor(map, x, y, w, h, theme) {
+  const rw = Math.max(w, 16), rh = Math.min(h, 4);
+  map.carveRoom(x, y, rw, rh, T.WALL_PAPER, theme.floorType, 1);
+  for (let lx2 = x + 4; lx2 < x + rw - 2; lx2 += 6)
+    map.addLight(lx2, y + Math.floor(rh/2), 8, 0.7, 1.0, 1.0, 0.98, 1.2);
+  // Doors along the corridor
+  for (let dx2 = x + 3; dx2 < x + rw - 3; dx2 += 6)
+    if (Math.random() < 0.5) map.set(dx2, y + 1, T.DOOR_CLOSED);
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+function vending_room(map, x, y, w, h, theme) {
+  const rw = Math.max(w, 8), rh = Math.max(h, 8);
+  map.carveRoom(x, y, rw, rh, T.WALL_TILE, theme.floorType, 1);
+  // 4 vending machines on walls
+  map.set(x + 2, y + 1, T.VENDING_MACHINE);
+  map.set(x + 4, y + 1, T.VENDING_MACHINE);
+  if (rw > 8) { map.set(x + 2, y + rh - 2, T.VENDING_MACHINE); map.set(x + 4, y + rh - 2, T.VENDING_MACHINE); }
+  map.addLight(x + rw/2, y + rh/2, 10, 0.85, 1.0, 1.0, 0.95, 0.8);
+  // Guaranteed loot
+  map.items.push({ x: x + Math.floor(rw/2) + 0.5, y: y + Math.floor(rh/2) + 0.5, type: 'battery' });
+  map.items.push({ x: x + Math.floor(rw/2) - 1 + 0.5, y: y + Math.floor(rh/2) + 0.5, type: 'almond_water' });
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+function boardroom(map, x, y, w, h, theme) {
+  const rw = Math.max(w, 10), rh = Math.max(h, 10);
+  map.carveRoom(x, y, rw, rh, T.WALL_TILE, theme.floorType, 1);
+  // TABLE tiles in center
+  for (let tx2 = x + 2; tx2 < x + rw - 2; tx2++)
+    if (Math.abs(tx2 - (x + Math.floor(rw/2))) <= 2) map.set(tx2, y + Math.floor(rh/2), T.TABLE);
+  map.addLight(x + rw/2, y + rh/2, 12, 0.75, 1.0, 1.0, 0.95, 0.9);
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+function break_room(map, x, y, w, h, theme) {
+  map.carveRoom(x, y, w, h, T.WALL_PAPER, theme.floorType, 1);
+  // Lockers and guaranteed loot
+  if (w > 6) { map.set(x + 2, y + 1, T.LOCKER_CLOSED); map.set(x + w - 3, y + 1, T.LOCKER_CLOSED); }
+  map.addLight(x + w/2, y + h/2, 9, 0.8, 1.0, 1.0, 0.95, 0.9);
+  map.items.push({ x: x + Math.floor(w/2) + 0.5, y: y + Math.floor(h/2) + 0.5, type: 'almond_water' });
+  return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+}
+
+// ── SUBURBS ROOM TEMPLATES ────────────────────────────────────────────────────
+function suburb_road(map, x, y, w, h, theme) {
+  const rw = Math.max(w, 20), rh = Math.max(h, 12);
+  // Open road section with floor
+  for (let ry2 = y; ry2 < y + rh; ry2++)
+    for (let rx2 = x; rx2 < x + rw; rx2++) {
+      map.set(rx2, ry2, T.EMPTY);
+      map.setFloor(rx2, ry2, T.FLOOR_ROAD);
+    }
+  // House facades on top and bottom edges
+  for (let fx2 = x + 1; fx2 < x + rw - 1; fx2 += 6) {
+    if (fx2 + 4 < x + rw - 1) {
+      for (let fw2 = fx2; fw2 < fx2 + 5; fw2++) {
+        map.set(fw2, y, T.WALL_WOOD);
+        map.set(fw2, y + rh - 1, T.WALL_WOOD);
+      }
+      map.set(fx2 + 2, y, T.WINDOW);
+      map.set(fx2 + 2, y + rh - 1, T.WINDOW);
+    }
+  }
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+function house_interior(map, x, y, w, h, theme) {
+  const rw = Math.max(w, 8), rh = Math.max(h, 8);
+  map.carveRoom(x, y, rw, rh, T.WALL_WOOD, T.FLOOR_WOOD, 0);
+  map.set(x + 2, y + 1, T.LOCKER_CLOSED);
+  if (rw > 8) map.set(x + rw - 3, y + rh - 2, T.LOCKER_CLOSED);
+  map.set(x + Math.floor(rw/2), y, T.DOOR_CLOSED);
+  map.items.push({ x: x + rng(2, rw - 2) + 0.5, y: y + rng(2, rh - 2) + 0.5, type: pick(['battery', 'medkit', 'almond_water', 'pockets']) });
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+function garage(map, x, y, w, h, theme) {
+  const rw = Math.max(w, 6), rh = Math.max(h, 8);
+  map.carveRoom(x, y, rw, rh, T.WALL_CONCRETE, T.FLOOR_CONCRETE, 0);
+  map.set(x + Math.floor(rw/2), y, T.DOOR_CLOSED);
+  map.items.push({ x: x + Math.floor(rw/2) + 0.5, y: y + Math.floor(rh/2) + 0.5, type: pick(['tool', 'weapon_part', 'pipe']) });
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+function cul_de_sac(map, x, y, w, h, theme) {
+  const rw = Math.max(w, 24), rh = Math.max(h, 20);
+  for (let ry2 = y; ry2 < y + rh; ry2++)
+    for (let rx2 = x; rx2 < x + rw; rx2++) { map.set(rx2, ry2, T.EMPTY); map.setFloor(rx2, ry2, T.FLOOR_ROAD); }
+  // 4 embedded house blocks at corners
+  const corners = [[x+1, y+1], [x+rw-7, y+1], [x+1, y+rh-9], [x+rw-7, y+rh-9]];
+  for (const [hx2, hy2] of corners) {
+    map.carveRoom(hx2, hy2, 6, 8, T.WALL_WOOD, T.FLOOR_WOOD, 0);
+    map.set(hx2 + 3, hy2, T.DOOR_CLOSED);
+    map.items.push({ x: hx2 + 3.5, y: hy2 + 4.5, type: pick(['battery', 'medkit', 'almond_water']) });
+  }
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+// ── CITY ROOM TEMPLATES ───────────────────────────────────────────────────────
+function city_block(map, x, y, w, h, theme) {
+  const rw = Math.max(w, 22), rh = Math.max(h, 22);
+  // Open block — skyscraper facades as walls
+  for (let ry2 = y; ry2 < y + rh; ry2++)
+    for (let rx2 = x; rx2 < x + rw; rx2++) { map.set(rx2, ry2, T.EMPTY); map.setFloor(rx2, ry2, T.FLOOR_CONCRETE); }
+  for (let wx2 = x; wx2 < x + rw; wx2++) { map.set(wx2, y, pick(theme.wallTypes)); map.set(wx2, y + rh - 1, pick(theme.wallTypes)); }
+  for (let wy2 = y; wy2 < y + rh; wy2++) { map.set(x, wy2, pick(theme.wallTypes)); map.set(x + rw - 1, wy2, pick(theme.wallTypes)); }
+  // Windows in facades
+  for (let wx3 = x + 2; wx3 < x + rw - 2; wx3 += 3) { map.set(wx3, y, T.WINDOW); map.set(wx3, y + rh - 1, T.WINDOW); }
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+function skyscraper_lobby(map, x, y, w, h, theme) {
+  const rw = Math.max(w, 10), rh = Math.max(h, 14);
+  map.carveRoom(x, y, rw, rh, T.WALL_TILE, T.FLOOR_TILE, 1);
+  map.addLight(x + rw/2, y + rh/2, 12, 0.6, 1.0, 1.0, 1.0);
+  map.set(x + 2, y + 1, T.LOCKER_CLOSED);
+  map.items.push({ x: x + Math.floor(rw/2) + 0.5, y: y + Math.floor(rh/2) + 0.5, type: pick(['security_keycard', 'key', 'compass']) });
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+function apartment_floor(map, x, y, w, h, theme) {
+  const rw = Math.max(w, 18), rh = Math.max(h, 14);
+  map.carveRoom(x, y, rw, rh, T.WALL_CONCRETE, T.FLOOR_CONCRETE, 0);
+  // 4 unit partitions
+  for (let unit = 0; unit < 4; unit++) {
+    const ux = x + 1 + (unit % 2) * Math.floor(rw/2), uy = y + 1 + Math.floor(unit / 2) * Math.floor(rh/2);
+    const uw = Math.floor(rw/2) - 2, uh = Math.floor(rh/2) - 2;
+    if (uw > 3 && uh > 3) {
+      for (let px3 = ux; px3 < ux + uw; px3++) map.set(px3, uy, T.WALL_WOOD);
+      for (let py3 = uy; py3 < uy + uh; py3++) map.set(ux, py3, T.WALL_WOOD);
+      map.set(ux + Math.floor(uw/2), uy, T.DOOR_CLOSED);
+      map.items.push({ x: ux + Math.floor(uw/2) + 0.5, y: uy + Math.floor(uh/2) + 0.5, type: pick(['battery', 'almond_water', 'medkit']) });
+    }
+  }
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+function shop_interior(map, x, y, w, h, theme) {
+  const rw = Math.max(w, 10), rh = Math.max(h, 8);
+  map.carveRoom(x, y, rw, rh, T.WALL_TILE, T.FLOOR_TILE, 1);
+  map.addLight(x + rw/2, y + rh/2, 10, 0.7, 1.0, 1.0, 0.95);
+  map.set(x + 2, y + 1, T.LOCKER_CLOSED);
+  map.set(x + rw - 3, y + 1, T.LOCKER_CLOSED);
+  map.items.push({ x: x + Math.floor(rw/2) + 0.5, y: y + Math.floor(rh/2) + 0.5, type: pick(['almond_water', 'almond_water_pure', 'medkit', 'night_vision_goggles']) });
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+// ── MALL ROOM TEMPLATES ───────────────────────────────────────────────────────
+function mall_atrium(map, x, y, w, h, theme) {
+  const rw = Math.max(w, 22), rh = Math.max(h, 22);
+  map.carveRoom(x, y, rw, rh, T.WALL_TILE, T.FLOOR_TILE, 1);
+  map.addLight(x + rw/2, y + rh/2, 20, 0.9, 1.0, 1.0, 0.98);
+  // Food court tables in center
+  for (let tx2 = x + rw/2 - 4; tx2 < x + rw/2 + 4; tx2 += 2)
+    map.set(Math.floor(tx2), y + Math.floor(rh/2), T.TABLE);
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+function store_interior(map, x, y, w, h, theme) {
+  const rw = Math.max(w, 10), rh = Math.max(h, 8);
+  map.carveRoom(x, y, rw, rh, T.WALL_PAPER, T.FLOOR_TILE, 1);
+  map.addLight(x + rw/2, y + rh/2, 9, 0.8, 1.0, 1.0, 0.98);
+  map.set(x + 2, y + 1, T.LOCKER_CLOSED);
+  if (rw > 8) map.set(x + rw - 3, y + 1, T.LOCKER_CLOSED);
+  map.items.push({ x: x + Math.floor(rw/2) + 0.5, y: y + Math.floor(rh/2) + 0.5, type: pick(['almond_water', 'battery', 'medkit', 'pockets']) });
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+function food_court(map, x, y, w, h, theme) {
+  const rw = Math.max(w, 16), rh = Math.max(h, 14);
+  map.carveRoom(x, y, rw, rh, T.WALL_TILE, T.FLOOR_TILE, 1);
+  map.addLight(x + rw/2, y + rh/2, 16, 0.85, 1.0, 1.0, 0.98);
+  for (let tx2 = x + 3; tx2 < x + rw - 3; tx2 += 4)
+    map.set(tx2, y + Math.floor(rh/2), T.TABLE);
+  map.items.push({ x: x + 3.5, y: y + 3.5, type: 'almond_water' });
+  map.items.push({ x: x + rw - 3.5, y: y + 3.5, type: 'almond_water_pure' });
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+function flooded_wing(map, x, y, w, h, theme) {
+  map.carveRoom(x, y, w, h, T.WALL_WET, T.FLOOR_POOL, 0);
+  for (let cy2 = y + 1; cy2 < y + h - 1; cy2++)
+    for (let cx2 = x + 1; cx2 < x + w - 1; cx2++)
+      map.setFloor(cx2, cy2, T.FLOOR_POOL);
+  map.addLight(x + w/2, y + h/2, 8, 0.25, 0.4, 0.6, 0.9);
+  return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+}
+
+function arcade_room(map, x, y, w, h, theme) {
+  const rw = Math.max(w, 10), rh = Math.max(h, 10);
+  map.carveRoom(x, y, rw, rh, T.WALL_TILE, T.FLOOR_TILE, 1);
+  map.addLight(x + rw/2, y + rh/2, 12, 0.7, 1.0, 0.7, 1.0);
+  // Arcade machines on walls
+  for (let ax2 = x + 2; ax2 < x + rw - 2; ax2 += 3) map.set(ax2, y + 1, T.ARCADE_MACHINE);
+  // Guaranteed rare loot
+  map.items.push({ x: x + Math.floor(rw/2) + 0.5, y: y + Math.floor(rh/2) + 0.5, type: pick(['compass', 'map_upgrade', 'night_vision_goggles', 'almond_water_pure']) });
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+// ── DREAMCORE ROOM TEMPLATES ──────────────────────────────────────────────────
+function open_hills(map, x, y, w, h, theme) {
+  const rw = Math.max(w, 28), rh = Math.max(h, 28);
+  for (let ry2 = y; ry2 < y + rh; ry2++)
+    for (let rx2 = x; rx2 < x + rw; rx2++) { map.set(rx2, ry2, T.EMPTY); map.setFloor(rx2, ry2, T.FLOOR_GRASS); }
+  // Low fence blocks scattered
+  for (let i = 0; i < 8; i++) {
+    const fx2 = x + rng(2, rw - 4), fy2 = y + rng(2, rh - 4);
+    for (let fw2 = 0; fw2 < 3; fw2++) map.set(fx2 + fw2, fy2, T.WALL_WOOD);
+  }
+  map.addLight(x + rw/2, y + rh/2, 30, 1.0, 1.0, 1.0, 1.0);
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+function dreamcore_house(map, x, y, w, h, theme) {
+  const rw = Math.max(w, 10), rh = Math.max(h, 10);
+  map.carveRoom(x, y, rw, rh, T.WALL_WOOD, T.FLOOR_WOOD, 1);
+  map.addLight(x + rw/2, y + rh/2, 10, 0.9, 1.0, 1.0, 0.95);
+  map.set(x + 3, y + Math.floor(rh/2), T.TABLE);
+  map.set(x + 2, y + 1, T.LOCKER_CLOSED);
+  map.set(x + Math.floor(rw/2), y, T.DOOR_CLOSED);
+  map.items.push({ x: x + 3.5, y: y + 3.5, type: pick(['almond_water', 'battery', 'idol', 'compass']) });
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+function van_stop(map, x, y, w, h, theme) {
+  const rw = 8, rh = 5;
+  map.carveRoom(x, y, rw, rh, T.WALL_METAL, T.FLOOR_WOOD, 0);
+  map.set(x, y + Math.floor(rh/2), T.DOOR_CLOSED);
+  map.items.push({ x: x + 2.5, y: y + 2.5, type: pick(['battery', 'almond_water', 'medkit', 'moth_jelly']) });
+  map.items.push({ x: x + 5.5, y: y + 2.5, type: pick(['battery', 'almond_water']) });
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+function water_tower(map, x, y, w, h, theme) {
+  const rw = 6, rh = 6;
+  map.carveRoom(x, y, rw, rh, T.WALL_METAL, T.FLOOR_CONCRETE, 0);
+  map.specialTiles.set(`${x+Math.floor(rw/2)},${y+Math.floor(rh/2)}`, { type: 'liminal', text: 'AM I DREAMING?' });
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+function castle_approach(map, x, y, w, h, theme) {
+  // Long brick corridor leading to exit
+  const len = 30, corridorW = 4;
+  map.carveRoom(x, y, len, corridorW, T.WALL_BRICK, T.FLOOR_GRASS, 1);
+  map.addLight(x + len/2, y + corridorW/2, 20, 1.0, 1.0, 1.0, 0.9);
+  return { cx: x + len - 2, cy: y + Math.floor(corridorW/2) };
+}
+
+// ── HOSPITAL ROOM TEMPLATES ───────────────────────────────────────────────────
+function hospital_corridor(map, x, y, w, h, theme) {
+  const rw = Math.max(w, 28), rh = 4;
+  map.carveRoom(x, y, rw, rh, T.WALL_TILE, T.FLOOR_TILE, 0);
+  // Emergency red lighting
+  for (let lx2 = x + 5; lx2 < x + rw - 2; lx2 += 8)
+    map.addLight(lx2, y + 2, 5, 0.4, 0.9, 0.05, 0.05, 2.0);
+  // Hospital bed obstacles alternating sides
+  for (let bx2 = x + 3; bx2 < x + rw - 3; bx2 += 8) {
+    if (Math.random() < 0.5) map.set(bx2, y + 1, T.HOSPITAL_BED);
+    else map.set(bx2, y + rh - 2, T.HOSPITAL_BED);
+  }
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+function ward(map, x, y, w, h, theme) {
+  const rw = Math.max(w, 12), rh = Math.max(h, 10);
+  map.carveRoom(x, y, rw, rh, T.WALL_TILE, T.FLOOR_TILE, 0);
+  map.addLight(x + rw/2, y + rh/2, 8, 0.35, 0.9, 0.05, 0.05, 1.5);
+  // Rows of beds as obstacles
+  for (let bx2 = x + 2; bx2 < x + rw - 2; bx2 += 3) {
+    map.set(bx2, y + 2, T.HOSPITAL_BED);
+    map.set(bx2, y + rh - 3, T.HOSPITAL_BED);
+  }
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+function nurses_station(map, x, y, w, h, theme) {
+  const rw = Math.max(w, 8), rh = Math.max(h, 8);
+  map.carveRoom(x, y, rw, rh, T.WALL_TILE, T.FLOOR_TILE, 0);
+  map.addLight(x + rw/2, y + rh/2, 8, 0.5, 0.9, 0.1, 0.1, 1.5);
+  map.set(x + 2, y + 1, T.LOCKER_CLOSED);
+  map.items.push({ x: x + 3.5, y: y + rh/2 + 0.5, type: 'battery' });
+  map.items.push({ x: x + 5.5, y: y + rh/2 + 0.5, type: 'medkit' });
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+// ── PARTY TABLE ROOM ──────────────────────────────────────────────────────────
+function party_table_room(map, x, y, w, h, theme) {
+  const rw = Math.max(w, 12), rh = Math.max(h, 10);
+  map.carveRoom(x, y, rw, rh, T.WALL_PARTY, T.FLOOR_PARTY, 1);
+  map.addLight(x + rw/2, y + rh/2, 14, 0.95, 1.0, 1.0, 1.0);
+  // Tables — crouching near them hides from Partygoers
+  for (let tx2 = x + 2; tx2 < x + rw - 2; tx2 += 4) map.set(tx2, y + Math.floor(rh/2), T.TABLE);
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
 // ── ROOM TEMPLATE REGISTRY ───────────────────────────────────────────────────
 const ROOM_TEMPLATES = {
   lobby_standard, lobby_corridor, lobby_void, lobby_void_corridor,
@@ -335,7 +728,13 @@ const ROOM_TEMPLATES = {
   pipe_corridor, pipe_junction, pipe_wide, pipe_vent_room,
   electrical_room, electrical_corridor, electrical_junction, electrical_switch_room,
   pool_chamber, pool_corridor, pool_dark_room,
-  party_main, party_corridor,
+  party_main, party_corridor, party_table_room,
+  office_open_plan, office_corridor, vending_room, boardroom, break_room,
+  suburb_road, house_interior, garage, cul_de_sac,
+  city_block, skyscraper_lobby, apartment_floor, shop_interior,
+  mall_atrium, store_interior, food_court, flooded_wing, arcade_room,
+  open_hills, dreamcore_house, van_stop, water_tower, castle_approach,
+  hospital_corridor, ward, nurses_station,
 };
 
 // ── SPECIAL ROOMS ────────────────────────────────────────────────────────────
@@ -595,8 +994,14 @@ function pickLootItem(level, theme) {
   if (level >= 2) base.push('flash_grenade', 'weapon_part', 'night_vision_goggles');
   if (level >= 3) base.push('fire_axe', 'motion_sensor', 'walkman');
   if (level >= 4) base.push('vent_tool');
+  if (level >= 8) base.push('pockets', 'almond_water_pure', 'moth_jelly');
+  if (level >= 18) base.push('idol');
   if (theme === 'pipes') base.push('battery', 'emergency_lantern', 'night_vision_goggles');
   if (theme === 'party') base.push('almond_water', 'almond_water', 'flash_grenade');
+  if (theme === 'office') base.push('almond_water', 'almond_water', 'battery', 'battery', 'medkit');
+  if (theme === 'suburbs') base.push('battery', 'battery', 'medkit', 'moth_jelly');
+  if (theme === 'mall') base.push('almond_water_pure', 'pockets', 'night_vision_goggles');
+  if (theme === 'hospital') base.push('medkit', 'medkit', 'battery');
   return pick(base);
 }
 
@@ -608,5 +1013,11 @@ function pickThemeItem(theme, level) {
   if (theme === 'electrical') return pick([...base, 'security_keycard', 'weapon_part', 'map_upgrade']);
   if (theme === 'poolrooms') return pick(['almond_water', 'almond_water', 'medkit', 'walkman']);
   if (theme === 'party') return pick(['almond_water', 'medkit', 'flash_grenade', 'compass']);
+  if (theme === 'office') return pick(['battery', 'battery', 'almond_water', 'almond_water', 'medkit', 'compass', 'pockets']);
+  if (theme === 'suburbs') return pick(['battery', 'battery', 'medkit', 'moth_jelly', 'night_vision_goggles']);
+  if (theme === 'city') return pick([...base, 'key', 'compass', 'almond_water_pure']);
+  if (theme === 'mall') return pick([...base, 'almond_water_pure', 'pockets', 'night_vision_goggles']);
+  if (theme === 'dreamcore') return pick(['almond_water', 'almond_water', 'medkit', 'idol', 'compass']);
+  if (theme === 'hospital') return pick(['medkit', 'medkit', 'battery', 'battery']);
   return pick(base);
 }

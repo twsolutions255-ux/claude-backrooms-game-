@@ -476,6 +476,13 @@ export class AudioSystem {
       case 'electrical':  this._ambientElectrical(); break;
       case 'poolrooms':   this._ambientPool(); break;
       case 'party':       this._ambientParty(); break;
+      case 'office':      this._ambientOffice(); break;
+      case 'suburbs':     this._ambientSuburbs(); break;
+      case 'city':        this._ambientCity(); break;
+      case 'mall':        this._ambientMall(); break;
+      case 'dreamcore':   this._ambientDreamcore(); break;
+      case 'dreamcore_night': this._ambientDreamcoreNight(); break;
+      case 'hospital':    this._ambientHospital(); break;
     }
   }
 
@@ -588,7 +595,6 @@ export class AudioSystem {
   _ambientParty() {
     if (!this.initialized) return;
     const g = this._makeLevelGain(0.25);
-    // Tinny upbeat party loop (simple synthesized melody)
     const notes = [523, 659, 784, 659, 523, 587, 698, 784];
     let noteIdx = 0;
     const playNote = () => {
@@ -606,6 +612,163 @@ export class AudioSystem {
       setTimeout(playNote, 220 + Math.random() * 30);
     };
     playNote();
+  }
+
+  _ambientOffice() {
+    const g = this._makeLevelGain(0.12);
+    // Quiet AC hum
+    const osc = this.ctx.createOscillator();
+    const og = this.ctx.createGain(); og.gain.value = 0.018;
+    const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 200;
+    osc.type = 'sine'; osc.frequency.value = 60;
+    osc.connect(f); f.connect(og); og.connect(g);
+    osc.start();
+    this._levelAmbientNodes.push(osc);
+    this._scheduleOfficeClicks();
+  }
+
+  _scheduleOfficeClicks() {
+    if (!['office'].includes(this._levelProfile) || !this.initialized) return;
+    const delay = 8000 + Math.random() * 14000;
+    setTimeout(() => {
+      if (this.initialized && this.ctx) {
+        // Distant keyboard click
+        const t = this.ctx.currentTime;
+        const buf = this.ctx.createBuffer(1, 512, this.ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < 512; i++) d[i] = (Math.random() * 2 - 1) * Math.max(0, 1 - i / 80);
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        const g2 = this.ctx.createGain(); g2.gain.value = 0.04;
+        src.connect(g2); g2.connect(this.masterGain);
+        src.start(t);
+      }
+      this._scheduleOfficeClicks();
+    }, delay);
+  }
+
+  _ambientSuburbs() {
+    const g = this._makeLevelGain(0.22);
+    // Wind howl — filtered noise
+    const bufSize = this.ctx.sampleRate * 3;
+    const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf; src.loop = true;
+    const filt = this.ctx.createBiquadFilter();
+    filt.type = 'bandpass'; filt.frequency.value = 300; filt.Q.value = 0.3;
+    const ng = this.ctx.createGain(); ng.gain.value = 0.03;
+    src.connect(filt); filt.connect(ng); ng.connect(g);
+    src.start();
+    this._levelAmbientNodes.push(src);
+    this._scheduleSuburbDogs();
+  }
+
+  _scheduleSuburbDogs() {
+    if (!['suburbs'].includes(this._levelProfile) || !this.initialized) return;
+    const delay = 10000 + Math.random() * 18000;
+    setTimeout(() => {
+      if (this.initialized) this.playDistantScream();
+      this._scheduleSuburbDogs();
+    }, delay);
+  }
+
+  _ambientCity() {
+    const g = this._makeLevelGain(0.08);
+    // Echo reverb on a low drone
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sawtooth'; osc.frequency.value = 55;
+    const og = this.ctx.createGain(); og.gain.value = 0.01;
+    const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 200;
+    osc.connect(f); f.connect(og); og.connect(g);
+    osc.start();
+    this._levelAmbientNodes.push(osc);
+  }
+
+  _ambientMall() {
+    const g = this._makeLevelGain(0.15);
+    // PA static noise
+    const bufSize = this.ctx.sampleRate * 2;
+    const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf; src.loop = true;
+    const filt = this.ctx.createBiquadFilter();
+    filt.type = 'bandpass'; filt.frequency.value = 3000; filt.Q.value = 2;
+    const ng = this.ctx.createGain(); ng.gain.value = 0.008;
+    src.connect(filt); filt.connect(ng); ng.connect(g);
+    src.start();
+    this._levelAmbientNodes.push(src);
+    this._scheduleMallDrip();
+  }
+
+  _scheduleMallDrip() {
+    if (!['mall'].includes(this._levelProfile) || !this.initialized) return;
+    const delay = 1200 + Math.random() * 4000;
+    setTimeout(() => {
+      if (this.initialized) this._playDrip();
+      this._scheduleMallDrip();
+    }, delay);
+  }
+
+  _ambientDreamcore() {
+    // Warped cartoon synth melody — major key but slightly off-pitch
+    if (!this.initialized) return;
+    const g = this._makeLevelGain(0.3);
+    const notes = [261, 329, 392, 329, 261, 293, 349, 392, 329, 261];
+    let idx = 0;
+    const playNote = () => {
+      if (this._levelProfile !== 'dreamcore' || !this.initialized) return;
+      const t = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const ng = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = notes[idx % notes.length] * (1 + (Math.random() - 0.5) * 0.015); // slight detune
+      ng.gain.setValueAtTime(0.06, t);
+      ng.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+      osc.connect(ng); ng.connect(g);
+      osc.start(t); osc.stop(t + 0.65);
+      idx++;
+      setTimeout(playNote, 700 + Math.random() * 200);
+    };
+    playNote();
+  }
+
+  _ambientDreamcoreNight() {
+    // Cricket chirps + near silence
+    const g = this._makeLevelGain(0.15);
+    const playChirp = () => {
+      if (this._levelProfile !== 'dreamcore_night' || !this.initialized) return;
+      const t = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      osc.type = 'sine'; osc.frequency.value = 4200 + Math.random() * 400;
+      const ng = this.ctx.createGain();
+      ng.gain.setValueAtTime(0.02, t);
+      ng.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+      osc.connect(ng); ng.connect(g);
+      osc.start(t); osc.stop(t + 0.07);
+      setTimeout(playChirp, 80 + Math.random() * 120);
+    };
+    playChirp();
+  }
+
+  _ambientHospital() {
+    // Alarm already running via playAlarm() in game.js; add low PA crackle
+    const g = this._makeLevelGain(0.2);
+    const bufSize = this.ctx.sampleRate;
+    const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf; src.loop = true;
+    const filt = this.ctx.createBiquadFilter();
+    filt.type = 'bandpass'; filt.frequency.value = 2500; filt.Q.value = 3;
+    const ng = this.ctx.createGain(); ng.gain.value = 0.006;
+    src.connect(filt); filt.connect(ng); ng.connect(g);
+    src.start();
+    this._levelAmbientNodes.push(src);
   }
 
   // Party alert sound — music cut + roar

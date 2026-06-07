@@ -215,6 +215,10 @@ export class Renderer {
       case T.DOOR_CLOSED: return TEXTURES.door;
       case T.LOCKER_CLOSED: return TEXTURES.locker;
       case T.WINDOW: return TEXTURES.window;
+      case 19: return TEXTURES.metal;      // VENDING_MACHINE
+      case 20: return TEXTURES.wood;       // TABLE
+      case 21: return TEXTURES.metal;      // ARCADE_MACHINE
+      case 22: return TEXTURES.concrete;   // HOSPITAL_BED
       default: return TEXTURES.wallpaper;
     }
   }

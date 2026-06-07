@@ -70,6 +70,14 @@ export class Game {
     this._nearExitNotified = false;
     this._nightVisionTimer = 0;
 
+    // New level feature timers
+    this._mothJellyTimer = 0;
+    this._idolTimer = 0;
+    this._dayNightTimer = 0;
+    this._curfewWarned = false;
+    this.isNight = false;
+    this._spawnFogTimer = 0;
+
     // Death messages
     this.DEATH_MESSAGES = [
       'You were too slow.',
@@ -295,6 +303,13 @@ export class Game {
       }
     }
     await this.loadLevel(this.level);
+    // Restore player stats after level loads
+    if (this.player && this.saveData) {
+      if (this.saveData.health) this.player.health = this.saveData.health;
+      if (this.saveData.sanity) this.player.sanity = this.saveData.sanity;
+      if (this.saveData.stamina) this.player.stamina = this.saveData.stamina;
+      if (this.saveData.flashlightBattery) this.player.flashlightBattery = this.saveData.flashlightBattery;
+    }
   }
 
   async loadLevel(level) {
@@ -336,6 +351,12 @@ export class Game {
     this.inSaveRoom = false;
     this._nearExitNotified = false;
     this._nightVisionTimer = 0;
+    this._mothJellyTimer = 0;
+    this._idolTimer = 0;
+    this._dayNightTimer = 0;
+    this._curfewWarned = false;
+    this.isNight = false;
+    this._spawnFogTimer = 0;
 
     // Apply options
     const opts = this.ui.getOptions();
@@ -361,10 +382,51 @@ export class Game {
     // Start music
     this.audio.setMusicState('calm');
 
+    // Level ! — force all entities into immediate chase
+    if (this.map.themeConfig?.sprintLevel && this.entities.length > 0) {
+      for (const e of this.entities) {
+        e.state = 'chase';
+        e._game = this;
+        e.lastKnownX = this.player.x;
+        e.lastKnownY = this.player.y;
+      }
+      this.isChaseActive = true;
+      this.renderer.emergencyMode = true;
+      this.audio.setMusicState('chase', true);
+      this.audio.playAlarm();
+    }
+
+    // Level intro card
+    this._showLevelIntro(level);
+
     // Begin loop
     this.lastTime = performance.now();
     if (this.animFrame) cancelAnimationFrame(this.animFrame);
     this.animFrame = requestAnimationFrame(this.loop);
+  }
+
+  _showLevelIntro(level) {
+    const el = document.getElementById('level-intro');
+    if (!el) return;
+    const theme = this.map?.themeConfig;
+    const dangerMap = [1,1,2,3,3,4,4,4,3,5,3,5,4,5,5];
+    const dangerClass = dangerMap[Math.min(level - 1, dangerMap.length - 1)] ?? 3;
+    const numEl = document.getElementById('level-intro-number');
+    const nameEl = document.getElementById('level-intro-name');
+    const dangEl = document.getElementById('level-intro-danger');
+    if (numEl) numEl.textContent = `LEVEL ${level}`;
+    if (nameEl) nameEl.textContent = theme?.name ?? 'THE BACKROOMS';
+    if (dangEl) dangEl.textContent = `DANGER CLASS: ${'█'.repeat(dangerClass)}${'░'.repeat(5 - dangerClass)}`;
+    el.classList.remove('hidden');
+    el.style.opacity = '1';
+    const dismiss = () => {
+      el.style.opacity = '0';
+      setTimeout(() => el.classList.add('hidden'), 800);
+    };
+    const t = setTimeout(dismiss, 2800);
+    const once = () => { clearTimeout(t); dismiss(); document.removeEventListener('keydown', once); el.removeEventListener('pointerdown', once); };
+    document.addEventListener('keydown', once, { once: true });
+    el.addEventListener('pointerdown', once, { once: true });
   }
 
   _wireEvents() {
@@ -425,6 +487,10 @@ export class Game {
   performSave() {
     this.saveData = {
       level: this.level,
+      health: this.player?.health ?? 100,
+      sanity: this.player?.sanity ?? 100,
+      stamina: this.player?.stamina ?? 100,
+      flashlightBattery: this.player?.flashlightBattery ?? 100,
       inventory: this.inventory.slots
         .map((s, i) => s ? { i, type: s.type, count: s.count } : null)
         .filter(Boolean),
@@ -490,6 +556,7 @@ export class Game {
       case 'save_room': this.enterSaveRoom(); break;
       case 'exit': this.nextLevel(); break;
       case 'pushable': this._pushObject(t.mx, t.my); break;
+      case 'vending': this._useVendingMachine(); break;
     }
   }
 
@@ -844,8 +911,106 @@ export class Game {
     // Passive item effects
     const hasWalkman = this.inventory.slots.some(s => s?.type === 'walkman');
     if (hasWalkman && this.player) {
-      // Walkman: restore 0.5 sanity/sec (counters natural drain)
       this.player.sanity = Math.min(this.player.maxSanity, this.player.sanity + dt * 0.5);
+    }
+
+    // Moth jelly — suppress deathmoth aggression
+    if (this._mothJellyTimer > 0) {
+      this._mothJellyTimer -= dt;
+      for (const e of this.entities) {
+        if (e.type === 'deathmoth' && e.alive) e.attractFlashlight = false;
+      }
+    }
+
+    // Idol — suppress animations
+    if (this._idolTimer > 0) {
+      this._idolTimer -= dt;
+      for (const e of this.entities) {
+        if (e.type === 'animations' && e.alive) { e.state = 'dormant'; }
+      }
+    }
+
+    // Wire _game reference so entities can check isNight
+    for (const e of this.entities) { if (!e._game) e._game = this; }
+
+    // Level 9 shrinking fog
+    if (this.map.themeConfig?.shrinkingFog && this.player) {
+      this._spawnFogTimer += dt;
+      const shrinkFactor = Math.min(0.5, this._spawnFogTimer / 300);
+      this.renderer.fogDensity = (this.map.themeConfig.fogDensity || 0.13) + shrinkFactor * 0.12;
+    }
+
+    // Level 11 smog sanity drain
+    if (this.map.themeConfig?.smogSanityDrain && this.player) {
+      const px3 = Math.floor(this.player.x), py3 = Math.floor(this.player.y);
+      const ftype3 = this.map.getFloor(px3, py3);
+      if (ftype3 === T.FLOOR_CONCRETE || ftype3 === T.FLOOR_ROAD) {
+        this.player.sanity = Math.max(0, this.player.sanity - this.map.themeConfig.smogSanityDrain * dt);
+      }
+    }
+
+    // Level 33 distance-based corruption
+    if (this.map.themeConfig?.distanceCorruption && this.player && this.map.spawnX !== undefined) {
+      const dx3 = this.player.x - this.map.spawnX, dy3 = this.player.y - this.map.spawnY;
+      const distFactor = Math.min(1, Math.sqrt(dx3 * dx3 + dy3 * dy3) / 60);
+      this.renderer.ambientLight = Math.max(0.05, 0.38 - distFactor * 0.28);
+      this.effects.grain = 0.4 + distFactor * 0.5;
+      this.effects.corruptionLevel = distFactor * 0.6;
+      // Boost entity chase speed by distance
+      for (const e of this.entities) {
+        if (e.alive) e._distanceFactor = distFactor;
+      }
+    }
+
+    // Level 94 day/night cycle
+    if (this.map.themeConfig?.dayNightCycle) {
+      this._dayNightTimer += dt;
+      const dayLen = 300, nightLen = 120;
+      const cycle = this._dayNightTimer % (dayLen + nightLen);
+      const newIsNight = cycle > dayLen;
+      if (newIsNight !== this.isNight) {
+        this.isNight = newIsNight;
+        if (newIsNight) {
+          this.events.pendingNotifications.push({ text: '⚠ CURFEW — 10PM — STAY INSIDE', duration: 6 });
+          this.audio.playAlarm();
+          this.renderer.ambientLight = 0.03;
+          this.audio.setLevelAmbient('dreamcore_night');
+        } else {
+          this.audio.stopAlarm?.();
+          this.renderer.ambientLight = 0.78;
+          this.audio.setLevelAmbient('dreamcore');
+          this._curfewWarned = false;
+          this.isNight = false;
+        }
+      }
+      if (!this._curfewWarned && cycle > dayLen - 30 && cycle < dayLen) {
+        this._curfewWarned = true;
+        this.events.pendingNotifications.push({ text: '⚠ NIGHT FALLS IN 30 SECONDS...', duration: 5 });
+      }
+    }
+
+    // Sanity hallucinations at very low sanity
+    if (this.player && this.player.sanity < 15 && this.entities.length < 8) {
+      if (Math.random() < dt * 0.04) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 5 + Math.random() * 4;
+        const ghost = new Entity(
+          this.player.x + Math.cos(angle) * dist,
+          this.player.y + Math.sin(angle) * dist,
+          'smiler', this.map
+        );
+        ghost.isHallucination = true;
+        ghost._hallucTimer = 8 + Math.random() * 5;
+        ghost._game = this;
+        this.entities.push(ghost);
+      }
+    }
+    for (let hi = this.entities.length - 1; hi >= 0; hi--) {
+      const e = this.entities[hi];
+      if (e.isHallucination) {
+        e._hallucTimer -= dt;
+        if (e._hallucTimer <= 0) this.entities.splice(hi, 1);
+      }
     }
 
     // Renderer brightness from events
@@ -889,6 +1054,10 @@ export class Game {
     const tile = this.map.get(mx, my);
     if (tile === T.DOOR_CLOSED || tile === T.DOOR_OPEN) {
       this.interactTarget = { type: 'door', mx, my, label: tile === T.DOOR_CLOSED ? 'OPEN DOOR' : 'CLOSE DOOR' };
+      return;
+    }
+    if (tile === T.VENDING_MACHINE) {
+      this.interactTarget = { type: 'vending', mx, my, label: 'GET ALMOND WATER [E]' };
       return;
     }
     if (tile === T.LOCKER_CLOSED || tile === T.LOCKER_OPEN) {
@@ -951,6 +1120,16 @@ export class Game {
     });
     // VHS effects pass
     this.effects.render(this.ctx);
+  }
+
+  _useVendingMachine() {
+    if (!this.player) return;
+    if (this.inventory.add('almond_water')) {
+      this.audio.playPickup();
+      this.events.pendingNotifications.push({ text: '🥛 Almond Water dispensed', duration: 2 });
+    } else {
+      this.events.pendingNotifications.push({ text: 'Inventory full!', duration: 2 });
+    }
   }
 
   // Load save on startup

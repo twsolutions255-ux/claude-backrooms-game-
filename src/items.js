@@ -154,6 +154,42 @@ export const ITEMS = {
       return false;
     }
   },
+  pockets: {
+    id: 'pockets', name: 'Cargo Pockets', icon: '🎒',
+    desc: 'Extra carrying capacity. +6 inventory slots.',
+    rarity: RARITY.RARE, stackable: false,
+    use(player) {
+      if (player._inventoryExpanded) return false;
+      player._inventoryExpanded = true;
+      if (player.inventory) {
+        player.inventory.size += 6;
+        for (let i = 0; i < 6; i++) player.inventory.slots.push(null);
+      }
+      return true;
+    }
+  },
+  almond_water_pure: {
+    id: 'almond_water_pure', name: 'Pure Almond Water', icon: '🫙',
+    desc: 'Full sanity restore + 30 HP. Rare.',
+    rarity: RARITY.EPIC, stackable: true, maxStack: 2,
+    use(player) {
+      player.restoreSanity(player.maxSanity);
+      player.heal(30);
+      return true;
+    }
+  },
+  moth_jelly: {
+    id: 'moth_jelly', name: 'Moth Jelly', icon: '🍯',
+    desc: 'Repels Deathmoths for 30 seconds.',
+    rarity: RARITY.UNCOMMON, stackable: true, maxStack: 3,
+    use(player, game) { if (game) game._mothJellyTimer = 30; return true; }
+  },
+  idol: {
+    id: 'idol', name: 'Carved Idol', icon: '🗿',
+    desc: 'Signals Animations entities to leave you alone for 30s.',
+    rarity: RARITY.EPIC, stackable: false,
+    use(player, game) { if (game) game._idolTimer = 30; return true; }
+  },
 };
 
 export class WorldItem {

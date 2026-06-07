@@ -23,6 +23,10 @@ export const T = {
   WALL_PIPE: 16,
   WALL_BRICK_RED: 17,
   WALL_PARTY: 18,
+  VENDING_MACHINE: 19,
+  TABLE: 20,
+  ARCADE_MACHINE: 21,
+  HOSPITAL_BED: 22,
   // Floor variants (add 100 to distinguish floor from wall, used in floor renderer)
   FLOOR_CARPET: 0,
   FLOOR_TILE: 100,
@@ -31,6 +35,9 @@ export const T = {
   FLOOR_DARK: 103,
   FLOOR_PARTY: 104,
   FLOOR_POOL: 105,
+  FLOOR_GRASS: 106,
+  FLOOR_ROAD: 107,
+  FLOOR_WOOD: 108,
 };
 
 // Each tile is one byte in the tiles array
