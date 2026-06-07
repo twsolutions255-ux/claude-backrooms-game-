@@ -38,6 +38,7 @@ export class Game {
     this.worldItems = [];
 
     this.renderer = new Renderer(this.canvas);
+    this.renderer._game = this;
     this.audio = new AudioSystem();
     this.events = new EventSystem();
     this.disturbance = new DisturbanceSystem();
@@ -522,6 +523,7 @@ export class Game {
     this.renderer.fogColorG = cfg.fogColorG || 0;
     this.renderer.fogColorB = cfg.fogColorB || 0;
     this.renderer.floorTexName = cfg.floorTexName || 'carpet';
+    this.renderer._skyConfig = cfg.skyKey ? this.renderer._SKY_CONFIGS?.[cfg.skyKey] : null;
 
     // Audio — level ambient profile
     this.audio.setLevelAmbient(cfg.ambientProfile || 'default');
@@ -579,19 +581,22 @@ export class Game {
       if (this.player.isHiding) {
         // Exit locker
         this.player.isHiding = false;
+        this.player.invincible = false;
         this.map.set(mx, my, T.LOCKER_OPEN);
         this.audio.playDoorOpen();
       } else {
-        // Hide in locker
+        // Hide in locker — become invincible
         this.player.isHiding = true;
+        this.player.invincible = true;
         this.map.set(mx, my, T.LOCKER_OPEN);
         this.audio.playDoorOpen();
-        this.events.pendingNotifications.push({ text: 'Hiding...', duration: 2 });
+        this.events.pendingNotifications.push({ text: 'Hiding... hold still.', duration: 3 });
       }
     } else if (tile === T.LOCKER_OPEN) {
       this.map.set(mx, my, T.LOCKER_CLOSED);
       this.audio.playDoorSlam();
       this.player.isHiding = false;
+      this.player.invincible = false;
     }
   }
 
@@ -634,14 +639,29 @@ export class Game {
   }
 
   swingWeapon() {
-    if (!this.inventory.hasWeapon) return;
-    if (this.inventory.isSwinging) return;
-    const hit = this.inventory.swing(this.player, this.entities, this.map);
-    this.audio.playMeleeSwing();
-    this.disturbance.addCombat();
-    if (hit) {
-      this.audio.playEntityScream(3);
+    if (!this.player) return;
+    // Trigger visual swing animation always
+    this.renderer._weaponSwingT = 1.0;
+    // Unarmed punch — hit entities in a cone
+    const punchDamage = 15;
+    for (const e of this.entities) {
+      if (!e.alive || e.isHallucination) continue;
+      const dx = e.x - this.player.x, dy = e.y - this.player.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > 2.0) continue;
+      const dot = (dx / dist) * this.player.dirX + (dy / dist) * this.player.dirY;
+      if (dot < 0.5) continue;
+      e.hit(dx / dist * -0.8, dy / dist * -0.8);
+      if (typeof e.takeDamage === 'function') e.takeDamage(punchDamage);
+      this.audio.playEntityScream?.(3);
+      break;
     }
+    if (this.inventory.hasWeapon && !this.inventory.isSwinging) {
+      const hit = this.inventory.swing(this.player, this.entities, this.map);
+      if (hit) this.audio.playEntityScream?.(3);
+    }
+    this.audio.playMeleeSwing?.();
+    this.disturbance.addCombat();
   }
 
   triggerFlashGrenade() {
@@ -714,7 +734,7 @@ export class Game {
     this.lastTime = timestamp;
 
     this.update(dt);
-    this.render();
+    this.render(dt);
   }
 
   update(dt) {
@@ -820,9 +840,10 @@ export class Game {
       this.chaseTimer = 0;
     } else if (!isChasing && this.isChaseActive) {
       this.chaseTimer += dt;
-      if (this.chaseTimer > 5) {
+      if (this.chaseTimer > 8) {
         this.isChaseActive = false;
         this.renderer.emergencyMode = false;
+        this.effects.chaseIntensity = 0;
         this.audio.setMusicState(this.inSaveRoom ? 'save' : 'calm');
         this.audio.setHeartbeat(false);
         this.effects.heartbeatActive = false;
@@ -1045,7 +1066,7 @@ export class Game {
   _detectInteractTarget() {
     if (!this.player) return;
     this.interactTarget = null;
-    const reach = 1.4;
+    const reach = 2.5;
     const px = this.player.x, py = this.player.y;
     const dx = this.player.dirX, dy = this.player.dirY;
     const tx = px + dx * reach, ty = py + dy * reach;
@@ -1072,7 +1093,7 @@ export class Game {
     for (const item of this.worldItems) {
       if (item.collected) continue;
       const idx = Math.abs(item.x - px), idy = Math.abs(item.y - py);
-      if (idx < reach && idy < reach) {
+      if (idx < 2.0 && idy < 2.0) {
         const def = ITEMS[item.type];
         this.interactTarget = { type: 'item', item, label: def ? `PICK UP ${def.name.toUpperCase()}` : 'PICK UP' };
         return;
@@ -1106,9 +1127,9 @@ export class Game {
     }
   }
 
-  render() {
+  render(dt = 0) {
     if (!this.map || !this.player) return;
-    this.renderer.render(this.map, this.player, this.entities, this.worldItems);
+    this.renderer.render(this.map, this.player, this.entities, this.worldItems, dt);
     // Minimap with upgrade flags
     const hasMap = this.creativeMode || this.inventory.slots.some(s => s?.type === 'map_upgrade');
     const hasCompass = this.creativeMode || this.inventory.slots.some(s => s?.type === 'compass');

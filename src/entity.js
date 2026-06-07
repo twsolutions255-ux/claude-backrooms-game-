@@ -88,13 +88,16 @@ export class Entity {
     this._erraticTimer = 0;
     this._erraticDx = 0;
     this._erraticDy = 0;
+
+    // Locker-hide tracking
+    this._hidingTimeout = 0;
   }
 
   _configureType(type) {
     switch (type) {
       case 'smiler':
         this.speed = 0;
-        this.chaseSpeed = 20;
+        this.chaseSpeed = 5.5;   // was 20 — proximity boost added in _moveAlongPath
         this.stalkSpeed = 0;
         this.attackRange = 1.0;
         this.hearRange = 0;
@@ -102,29 +105,30 @@ export class Entity {
         this.requiresDarkness = true;
         this.lostTimeout = 1;
         this.sightFOV = Math.PI;
+        this._proximityBoost = true; // very fast when close
         break;
       case 'hound':
-        this.speed = 3.5;
-        this.chaseSpeed = 5.2;
-        this.stalkSpeed = 2.0;
+        this.speed = 3.0;
+        this.chaseSpeed = 3.8;   // was 5.2
+        this.stalkSpeed = 1.8;
         this.attackRange = 0.8;
         this.hearRange = 20;
         this.sightRange = 15;
         this.sightFOV = Math.PI * 0.55;
         break;
       case 'faceling':
-        this.speed = 2.2;
-        this.chaseSpeed = 3.8;
-        this.stalkSpeed = 1.5;
+        this.speed = 2.0;
+        this.chaseSpeed = 3.2;   // was 3.8
+        this.stalkSpeed = 1.4;
         this.attackRange = 0.7;
         this.hearRange = 8;
         this.sightRange = 8;
         this.passive = Math.random() < 0.75;
         break;
       case 'partygoer':
-        this.speed = 2.5;
-        this.chaseSpeed = 5.8;
-        this.stalkSpeed = 1.5;
+        this.speed = 2.2;
+        this.chaseSpeed = 4.2;   // was 5.8
+        this.stalkSpeed = 1.4;
         this.attackRange = 0.8;
         this.hearRange = 10;
         this.sightRange = 8;
@@ -183,9 +187,9 @@ export class Entity {
         this.mimic = true;
         break;
       case 'animations':
-        this.speed = 4.6;
-        this.chaseSpeed = 6.8;
-        this.stalkSpeed = 2.5;
+        this.speed = 3.8;
+        this.chaseSpeed = 5.5;   // was 6.8
+        this.stalkSpeed = 2.2;
         this.attackRange = 1.1;
         this.hearRange = 12;
         this.sightRange = 12;
@@ -275,6 +279,25 @@ export class Entity {
         this.state = STATE.IDLE;
       }
     }
+
+    // ── PLAYER HIDING IN LOCKER — back off and wait ───────────────────────
+    if (this._game?.player?.isHiding && !this.isHallucination) {
+      if (this.state === STATE.CHASE || this.state === STATE.ATTACK) {
+        this.state = STATE.LOST;
+        this.lostTimer = 0;
+        this._hidingTimeout = 15;
+      }
+      if (this._hidingTimeout > 0) {
+        this._hidingTimeout -= dt;
+        if (this._hidingTimeout <= 0 && this.state === STATE.LOST) {
+          this.state = STATE.IDLE;
+          this.path = [];
+        }
+      }
+      this._moveAlongPath(dt, map);
+      return;
+    }
+    if (this._hidingTimeout > 0) this._hidingTimeout = 0;
 
     // ── SMILER: dormant in light, active in darkness ───────────────────────
     if (this.requiresDarkness) {
@@ -519,10 +542,16 @@ export class Entity {
       this.state = STATE.CHASE;
       return;
     }
-    if (this.stateTimer > 0.4) {
+    if (this.stateTimer > 1.0) {
       player.damage(20, 'entity');
       this.stateTimer = 0;
     }
+  }
+
+  takeDamage(amount) {
+    // Entities don't have health by default — only inventory.swing tracks kills
+    // But we can add a flash/stun effect
+    this.hitTimer = Math.max(this.hitTimer, 0.3);
   }
 
   _stateLost(dt, map, player, canSee, canHear) {
@@ -543,11 +572,17 @@ export class Entity {
   _moveAlongPath(dt, map, overrideSpeed) {
     if (this.path.length === 0 || !map) return;
 
-    const spd = overrideSpeed ?? (
+    let spd = overrideSpeed ?? (
       this.state === STATE.CHASE || this.state === STATE.ATTACK ? this.chaseSpeed :
       this.state === STATE.STALK || this.state === STATE.RETREAT ? this.stalkSpeed :
       this.speed
     );
+
+    // Smiler proximity boost: terrifyingly fast when within 3 tiles
+    if (this._proximityBoost && this._game?.player) {
+      const pd = Math.hypot(this._game.player.x - this.x, this._game.player.y - this.y);
+      if (pd < 3) spd = spd * (1 + (3 - pd));
+    }
 
     if (this.hitTimer > 0) return;
 

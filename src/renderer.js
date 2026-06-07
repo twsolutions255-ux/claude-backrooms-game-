@@ -1,6 +1,6 @@
 // Raycaster renderer — DDA algorithm, floor/ceiling casting, sprite rendering
 import { T, MAP_W } from './map.js';
-import { TEXTURES, TEX_SIZE, sampleTex } from './textures.js';
+import { TEXTURES, TEX_SIZE, sampleTex, SKY_CONFIGS } from './textures.js';
 
 const SCREEN_W = 640;
 const SCREEN_H = 360;
@@ -30,6 +30,11 @@ export class Renderer {
     this.fogColorG = 0;
     this.fogColorB = 0;
     this._sprites = [];
+    this._skyConfig = null;         // set per-level for outdoor sky
+    this._SKY_CONFIGS = SKY_CONFIGS; // expose for game.js
+    this._weaponSwingT = 0;         // 1→0, attack animation
+    this._weaponBobT = 0;           // accumulates with movement
+    this._game = null;              // set by game.js
   }
 
   // ── SET PIXEL ──────────────────────────────────────────────────────────────
@@ -61,9 +66,15 @@ export class Renderer {
   }
 
   // ── MAIN RENDER ───────────────────────────────────────────────────────────
-  render(map, player, entities, worldItems) {
+  render(map, player, entities, worldItems, dt = 0) {
     this._renderScene(map, player);
     this._renderSprites(map, player, entities, worldItems);
+    // Weapon bob + swing update
+    if (dt > 0) {
+      this._weaponBobT += dt * (player.isMoving ? (player.isSprinting ? 5.5 : 4.0) : 0.5);
+      if (this._weaponSwingT > 0) this._weaponSwingT = Math.max(0, this._weaponSwingT - dt * 3);
+    }
+    this._renderWeapon(this.buf32, player);
     this._renderVignette();
     this.ctx.putImageData(this.imgData, 0, 0);
   }
@@ -110,13 +121,24 @@ export class Renderer {
 
         // Ceiling pixel (mirrored y)
         const cy2 = SCREEN_H - y - 1;
-        const cp = ceilTex[ty * TEX_SIZE + tx];
-        const crBase = (cp & 0xFF) * bright * 0.85 + this.fogColorR * fog * 160;
-        const cgBase = ((cp >> 8) & 0xFF) * bright * 0.85 + this.fogColorG * fog * 160;
-        const cbBase = ((cp >> 16) & 0xFF) * bright * 0.85 + this.fogColorB * fog * 160;
-        let fcr = crBase, fcg = cgBase, fcb = cbBase;
-        if (emergency) { fcr = Math.min(255, crBase * 1.3 + 20); fcg = cgBase * 0.2; fcb = cbBase * 0.2; }
-        buf[cy2 * SCREEN_W + x] = (255 << 24) | ((fcb | 0) << 16) | ((fcg | 0) << 8) | (fcr | 0);
+        const ceilType = map.ceiling ? (map.ceiling[Math.floor(floorX) + Math.floor(floorY) * MAP_W] ?? 0) : 0;
+        if (ceilType === 2 && this._skyConfig) {
+          // Sky gradient: top of screen=top color, horizon=bot color
+          const skyT = cy2 / HALF_H; // 0=top, 1=horizon
+          const sky = this._skyConfig;
+          const skr = (sky.topR + (sky.botR - sky.topR) * skyT) | 0;
+          const skg = (sky.topG + (sky.botG - sky.topG) * skyT) | 0;
+          const skb = (sky.topB + (sky.botB - sky.topB) * skyT) | 0;
+          buf[cy2 * SCREEN_W + x] = (255 << 24) | (skb << 16) | (skg << 8) | skr;
+        } else {
+          const cp = ceilTex[ty * TEX_SIZE + tx];
+          const crBase = (cp & 0xFF) * bright * 0.85 + this.fogColorR * fog * 160;
+          const cgBase = ((cp >> 8) & 0xFF) * bright * 0.85 + this.fogColorG * fog * 160;
+          const cbBase = ((cp >> 16) & 0xFF) * bright * 0.85 + this.fogColorB * fog * 160;
+          let fcr = crBase, fcg = cgBase, fcb = cbBase;
+          if (emergency) { fcr = Math.min(255, crBase * 1.3 + 20); fcg = cgBase * 0.2; fcb = cbBase * 0.2; }
+          buf[cy2 * SCREEN_W + x] = (255 << 24) | ((fcb | 0) << 16) | ((fcg | 0) << 8) | (fcr | 0);
+        }
 
         floorX += stepX;
         floorY += stepY;
@@ -567,6 +589,102 @@ export class Renderer {
         return 0;
       }
     }
+  }
+
+  // ── WEAPON IN HAND ────────────────────────────────────────────────────────
+  _renderWeapon(buf, player) {
+    const W = SCREEN_W, H = SCREEN_H;
+    const bobAmt = player.bobAmt || 0;
+    const bobX = Math.sin(this._weaponBobT * 2) * 5 * bobAmt;
+    const bobY = Math.abs(Math.cos(this._weaponBobT)) * 7 * bobAmt;
+    const swingOff = this._weaponSwingT > 0 ? -(1 - (1 - this._weaponSwingT) * (1 - this._weaponSwingT)) * 35 : 0;
+
+    // Center X, bottom of screen with bob
+    const baseX = (W / 2 - 32 + bobX) | 0;
+    const baseY = (H - 88 + bobY + swingOff) | 0;
+
+    const weapon = this._game?.inventory?.equippedWeapon || this._game?.inventory?.getSelected()?.type || 'flashlight';
+    this._blitWeapon(buf, weapon, baseX, baseY, W, H);
+  }
+
+  _blitWeapon(buf, weapon, bx, by, W, H) {
+    // Draw a 64×88 weapon sprite procedurally pixel by pixel
+    for (let wy = 0; wy < 88; wy++) {
+      const sy = by + wy;
+      if (sy < 0 || sy >= H) continue;
+      for (let wx = 0; wx < 64; wx++) {
+        const sx = bx + wx;
+        if (sx < 0 || sx >= W) continue;
+        const col = this._weaponPixel(weapon, wx, wy);
+        if ((col >>> 24) < 8) continue; // transparent
+        buf[sy * W + sx] = col;
+      }
+    }
+  }
+
+  _weaponPixel(weapon, wx, wy) {
+    const cx = wx - 32; // -32 to +31 center
+    const alpha = 0xFF << 24;
+
+    if (weapon === 'flashlight' || weapon === 'flashlight_heavy') {
+      // Flashlight: grey cylinder barrel, darker grip at bottom
+      const body = Math.abs(cx) < 7 && wy >= 10 && wy < 60;
+      const lens = Math.abs(cx) < 9 && wy < 12;
+      const grip = Math.abs(cx) < 5 && wy >= 58 && wy < 88;
+      const light_ring = Math.abs(cx) < 9 && wy >= 6 && wy < 14 && Math.abs(cx) > 6;
+      if (lens && wy < 8) return alpha | (0xDDDDFF); // lens glow
+      if (lens) return alpha | (0xBBBBCC);
+      if (light_ring) return alpha | (0x888899);
+      if (body) {
+        const shade = cx > 0 ? 0x888888 : (cx < -3 ? 0xAAAAAA : 0x999999);
+        return alpha | shade;
+      }
+      if (grip) {
+        const gshade = cx > 0 ? 0x332222 : 0x443333;
+        return alpha | gshade;
+      }
+      return 0;
+    }
+
+    if (weapon === 'pipe' || weapon === 'fire_axe') {
+      // Pipe/melee: brown wooden grip, darker metal top
+      const handle = Math.abs(cx) < 5 && wy >= 30 && wy < 88;
+      const metal = Math.abs(cx) < 6 && wy < 32;
+      if (metal) {
+        if (weapon === 'fire_axe' && wy < 20 && cx > 0) {
+          // Axe blade extends to the right
+          if (cx > 4 && cx < 18 && wy > 5 && wy < 20) return alpha | 0x4444AA;
+        }
+        return alpha | (cx > 0 ? 0x666677 : 0x888899);
+      }
+      if (handle) {
+        const wrap = ((wy / 6) | 0) % 2 === 0 ? 0x553311 : 0x442200;
+        return alpha | wrap;
+      }
+      return 0;
+    }
+
+    if (weapon === 'key') {
+      // Key: gold shaft, bow at top
+      const shaft = Math.abs(cx) < 3 && wy >= 20 && wy < 70;
+      const bow = Math.sqrt(cx * cx + (wy - 15) * (wy - 15)) < 10 && wy < 25;
+      const bowHole = Math.sqrt(cx * cx + (wy - 15) * (wy - 15)) < 5;
+      const teeth = (wy >= 60 && wy < 72) && (cx > 2 && cx < 8) && ((wy - 60) % 6 < 3);
+      if (bow && !bowHole) return alpha | 0x20C0D0;
+      if (shaft) return alpha | 0x30B0C0;
+      if (teeth) return alpha | 0x20A0B0;
+      return 0;
+    }
+
+    // Default: fist/hand
+    const fist = Math.abs(cx) < 14 && wy >= 20 && wy < 60;
+    const fingers = Math.abs(cx) < 12 && wy >= 10 && wy < 22;
+    if (fist) {
+      const knuckle = (wy === 20 || wy === 21) && Math.abs(cx) < 11;
+      return alpha | (knuckle ? 0xC0A888 : 0xB09878);
+    }
+    if (fingers) return alpha | 0xB09878;
+    return 0;
   }
 
   // ── VIGNETTE ──────────────────────────────────────────────────────────────

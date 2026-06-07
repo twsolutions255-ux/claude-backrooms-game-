@@ -184,6 +184,7 @@ html, body {
   transform: translateX(-50%);
   display: flex;
   gap: 6px;
+  touch-action: none;
 }
 .hotslot {
   width: 48px; height: 48px;

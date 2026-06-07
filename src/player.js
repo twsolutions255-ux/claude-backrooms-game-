@@ -54,6 +54,7 @@ export class Player {
     // Damage state
     this.invincibleTimer = 0;
     this.damageFlash = 0;
+    this.invincible = false; // set true while hiding in locker
 
     // Footstep sounds
     this.footstepTimer = 0;
@@ -115,6 +116,7 @@ export class Player {
 
   damage(amount, reason = '') {
     if (this.invincibleTimer > 0) return;
+    if (this.invincible) return;
     this.health = Math.max(0, this.health - amount);
     this.damageFlash = 1;
     this.invincibleTimer = 0.8;

@@ -132,9 +132,11 @@ export class UI {
       }
     });
 
-    // Hotbar tap-to-select (mobile friendly)
+    // Hotbar tap-to-select — pointerdown fires immediately on touch (no 300ms delay)
     for (let i = 0; i < 5; i++) {
-      document.getElementById(`slot${i}`)?.addEventListener('click', () => {
+      const slotEl = document.getElementById(`slot${i}`);
+      slotEl?.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
         if (this.currentState === 'playing' && !this.inventoryOpen) {
           this._emit('hotbar_select', { slot: i });
         }

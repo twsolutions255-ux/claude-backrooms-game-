@@ -287,6 +287,61 @@ export const texDarkTile = makeTex((x, y) => {
   return rgba(10 + n, 10 + n, 20 + n);
 });
 
+// ── GRASS FLOOR (outdoor) ─────────────────────────────────────────────────────
+export const texGrass = makeTex((x, y) => {
+  const n = smoothNoise(x * 0.35, y * 0.35, 60) * 0.35 + smoothNoise(x * 1.2, y * 1.2, 61) * 0.12;
+  const g = Math.min(255, (90 + n * 70) | 0);
+  const r = Math.min(255, (22 + n * 18) | 0);
+  const b = Math.min(255, (18 + n * 12) | 0);
+  const patch = smoothNoise(x * 0.1, y * 0.1, 62) > 0.62 ? 0.78 : 1;
+  // Occasional flower dots
+  const flower = noise(x, y, 63) > 0.96;
+  if (flower) return rgba(255, 240, 60);
+  return rgba((r * patch) | 0, (g * patch) | 0, (b * patch) | 0);
+});
+
+// ── HOSPITAL TILE (bright sterile white) ─────────────────────────────────────
+export const texHospitalTile = makeTex((x, y) => {
+  const grout = (x % 16 === 0) || (y % 16 === 0);
+  if (grout) return rgba(175, 178, 182);
+  const n = smoothNoise(x * 0.5, y * 0.5, 64) * 10;
+  return rgba(Math.min(255, (232 + n * 0.4) | 0), Math.min(255, (235 + n * 0.4) | 0), Math.min(255, (238 + n * 0.4) | 0));
+});
+
+// ── ROAD ASPHALT ──────────────────────────────────────────────────────────────
+export const texRoad = makeTex((x, y) => {
+  const n = smoothNoise(x * 0.3, y * 0.3, 65) * 14;
+  const base = (40 + n) | 0;
+  // White center dashes
+  if (Math.abs(x - 32) < 2 && (y % 14) < 8) return rgba(210, 210, 210);
+  // Yellow edge lines
+  if (x < 4 || x > 59) return rgba(180, 160, 20);
+  // Small road cracks
+  const crack = smoothNoise(x * 2, y * 0.4, 66) > 0.9 ? 0.6 : 1;
+  return rgba((base * crack) | 0, (base * crack) | 0, ((base - 5) * crack) | 0);
+});
+
+// ── DREAMCORE WALL (pastel wood paneling) ─────────────────────────────────────
+export const texDreamcoreWall = makeTex((x, y) => {
+  const grain = smoothNoise(x * 0.04 + smoothNoise(x * 0.02, y * 0.02, 67) * 2, y * 1.2, 67) * 0.3;
+  const n = smoothNoise(x * 0.4, y * 0.4, 68) * 0.12;
+  // Pastel pink-cream
+  return rgba(
+    Math.min(255, (215 + grain * 30 + n * 20) | 0),
+    Math.min(255, (185 + grain * 25 + n * 18) | 0),
+    Math.min(255, (165 + grain * 18 + n * 14) | 0)
+  );
+});
+
+// ── SKY CONFIGS — used by renderer for outdoor ceiling gradient ───────────────
+export const SKY_CONFIGS = {
+  dreamcore:       { topR: 120, topG: 185, topB: 225, botR: 190, botG: 230, botB: 200 },
+  dreamcore_night: { topR: 5,   topG: 5,   topB: 20,  botR: 18,  botG: 12,  botB: 35  },
+  suburbs:         { topR: 8,   topG: 8,   topB: 20,  botR: 28,  botG: 22,  botB: 40  },
+  city:            { topR: 22,  topG: 28,  topB: 45,  botR: 55,  botG: 50,  botB: 70  },
+  poolrooms:       { topR: 95,  topG: 175, topB: 205, botR: 145, botG: 215, botB: 235 },
+};
+
 // ── ALL TEXTURES MAP ─────────────────────────────────────────────────────────
 export const TEXTURES = {
   wallpaper: texWallpaper,
@@ -312,6 +367,10 @@ export const TEXTURES = {
   partyWall: texPartyWall,
   partyFloor: texPartyFloor,
   darkTile: texDarkTile,
+  grass: texGrass,
+  hospitalTile: texHospitalTile,
+  road: texRoad,
+  dreamcoreWall: texDreamcoreWall,
 };
 
 export function getTexPixel(tex, u, v) {

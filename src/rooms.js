@@ -73,7 +73,7 @@ const LEVEL_THEMES = {
     floorType: T.FLOOR_PARTY,
     ambientBase: 0.72,
     fogDensity: 0.018,
-    fogColorR: 0.06, fogColorG: 0.06, fogColorB: 0.08,
+    fogColorR: 0.12, fogColorG: 0.04, fogColorB: 0.12,
     entityTypes: ['partygoer', 'partygoer', 'partygoer'],
     roomPool: ['party_main', 'party_main', 'party_corridor', 'party_table_room'],
     floorTexName: 'partyFloor',
@@ -97,10 +97,11 @@ const LEVEL_THEMES = {
     floorType: T.FLOOR_ROAD,
     ambientBase: 0.03,
     fogDensity: 0.13,
-    fogColorR: 0.01, fogColorG: 0.01, fogColorB: 0.02,
+    fogColorR: 0.00, fogColorG: 0.00, fogColorB: 0.02,
     entityTypes: ['hound', 'smiler', 'smiler', 'the_mangled', 'deathmoth', 'wretch'],
     roomPool: ['suburb_road', 'house_interior', 'garage', 'suburb_road', 'cul_de_sac'],
-    floorTexName: 'concrete',
+    floorTexName: 'road',
+    skyKey: 'suburbs',
     ambientProfile: 'suburbs',
     shrinkingFog: true,
   },
@@ -110,10 +111,11 @@ const LEVEL_THEMES = {
     floorType: T.FLOOR_CONCRETE,
     ambientBase: 0.07,
     fogDensity: 0.09,
-    fogColorR: 0.01, fogColorG: 0.02, fogColorB: 0.03,
+    fogColorR: 0.01, fogColorG: 0.01, fogColorB: 0.03,
     entityTypes: ['faceling', 'faceling', 'hound'],
     roomPool: ['city_block', 'city_block', 'skyscraper_lobby', 'apartment_floor', 'shop_interior'],
     floorTexName: 'concrete',
+    skyKey: 'city',
     ambientProfile: 'city',
     smogSanityDrain: 0.4,
   },
@@ -136,10 +138,11 @@ const LEVEL_THEMES = {
     floorType: T.FLOOR_GRASS,
     ambientBase: 0.78,
     fogDensity: 0.03,
-    fogColorR: 0.05, fogColorG: 0.08, fogColorB: 0.10,
+    fogColorR: 0.10, fogColorG: 0.14, fogColorB: 0.18,
     entityTypes: ['animations'],
     roomPool: ['open_hills', 'dreamcore_house', 'van_stop', 'open_hills', 'water_tower', 'castle_approach'],
-    floorTexName: 'carpet',
+    floorTexName: 'grass',
+    skyKey: 'dreamcore',
     ambientProfile: 'dreamcore',
     dayNightCycle: true,
   },
@@ -149,10 +152,10 @@ const LEVEL_THEMES = {
     floorType: T.FLOOR_TILE,
     ambientBase: 0.12,
     fogDensity: 0.08,
-    fogColorR: 0.08, fogColorG: 0.00, fogColorB: 0.00,
+    fogColorR: 0.12, fogColorG: 0.00, fogColorB: 0.00,
     entityTypes: ['smiler', 'partygoer'],
     roomPool: ['hospital_corridor', 'ward', 'nurses_station'],
-    floorTexName: 'poolTile',
+    floorTexName: 'hospitalTile',
     ambientProfile: 'hospital',
     sprintLevel: true,
   },
@@ -477,6 +480,7 @@ function suburb_road(map, x, y, w, h, theme) {
     for (let rx2 = x; rx2 < x + rw; rx2++) {
       map.set(rx2, ry2, T.EMPTY);
       map.setFloor(rx2, ry2, T.FLOOR_ROAD);
+      map.setCeiling(rx2, ry2, 2); // outdoor sky
     }
   // House facades on top and bottom edges
   for (let fx2 = x + 1; fx2 < x + rw - 1; fx2 += 6) {
@@ -513,7 +517,7 @@ function garage(map, x, y, w, h, theme) {
 function cul_de_sac(map, x, y, w, h, theme) {
   const rw = Math.max(w, 24), rh = Math.max(h, 20);
   for (let ry2 = y; ry2 < y + rh; ry2++)
-    for (let rx2 = x; rx2 < x + rw; rx2++) { map.set(rx2, ry2, T.EMPTY); map.setFloor(rx2, ry2, T.FLOOR_ROAD); }
+    for (let rx2 = x; rx2 < x + rw; rx2++) { map.set(rx2, ry2, T.EMPTY); map.setFloor(rx2, ry2, T.FLOOR_ROAD); map.setCeiling(rx2, ry2, 2); }
   // 4 embedded house blocks at corners
   const corners = [[x+1, y+1], [x+rw-7, y+1], [x+1, y+rh-9], [x+rw-7, y+rh-9]];
   for (const [hx2, hy2] of corners) {
@@ -529,7 +533,7 @@ function city_block(map, x, y, w, h, theme) {
   const rw = Math.max(w, 22), rh = Math.max(h, 22);
   // Open block — skyscraper facades as walls
   for (let ry2 = y; ry2 < y + rh; ry2++)
-    for (let rx2 = x; rx2 < x + rw; rx2++) { map.set(rx2, ry2, T.EMPTY); map.setFloor(rx2, ry2, T.FLOOR_CONCRETE); }
+    for (let rx2 = x; rx2 < x + rw; rx2++) { map.set(rx2, ry2, T.EMPTY); map.setFloor(rx2, ry2, T.FLOOR_CONCRETE); map.setCeiling(rx2, ry2, 2); }
   for (let wx2 = x; wx2 < x + rw; wx2++) { map.set(wx2, y, pick(theme.wallTypes)); map.set(wx2, y + rh - 1, pick(theme.wallTypes)); }
   for (let wy2 = y; wy2 < y + rh; wy2++) { map.set(x, wy2, pick(theme.wallTypes)); map.set(x + rw - 1, wy2, pick(theme.wallTypes)); }
   // Windows in facades
@@ -629,7 +633,7 @@ function arcade_room(map, x, y, w, h, theme) {
 function open_hills(map, x, y, w, h, theme) {
   const rw = Math.max(w, 28), rh = Math.max(h, 28);
   for (let ry2 = y; ry2 < y + rh; ry2++)
-    for (let rx2 = x; rx2 < x + rw; rx2++) { map.set(rx2, ry2, T.EMPTY); map.setFloor(rx2, ry2, T.FLOOR_GRASS); }
+    for (let rx2 = x; rx2 < x + rw; rx2++) { map.set(rx2, ry2, T.EMPTY); map.setFloor(rx2, ry2, T.FLOOR_GRASS); map.setCeiling(rx2, ry2, 2); }
   // Low fence blocks scattered
   for (let i = 0; i < 8; i++) {
     const fx2 = x + rng(2, rw - 4), fy2 = y + rng(2, rh - 4);
@@ -669,7 +673,7 @@ function water_tower(map, x, y, w, h, theme) {
 function castle_approach(map, x, y, w, h, theme) {
   // Long brick corridor leading to exit
   const len = 30, corridorW = 4;
-  map.carveRoom(x, y, len, corridorW, T.WALL_BRICK, T.FLOOR_GRASS, 1);
+  map.carveRoom(x, y, len, corridorW, T.WALL_BRICK, T.FLOOR_GRASS, 2); // outdoor sky
   map.addLight(x + len/2, y + corridorW/2, 20, 1.0, 1.0, 1.0, 0.9);
   return { cx: x + len - 2, cy: y + Math.floor(corridorW/2) };
 }
