@@ -44,6 +44,7 @@
             </div>
 
             <div id="level-info">LEVEL <span id="level-num">01</span></div>
+            <div id="creative-indicator" class="hidden">⭐ CREATIVE MODE</div>
         </div>
 
         <!-- Inventory -->
@@ -73,6 +74,8 @@
                     <button id="btn-new" class="mbtn">▶ NEW GAME</button>
                     <button id="btn-continue" class="mbtn hidden">▶ CONTINUE</button>
                     <button id="btn-options" class="mbtn">⚙ OPTIONS</button>
+                    <button id="btn-dev" class="mbtn">🔧 DEV MODE</button>
+                    <button id="btn-creative" class="mbtn">⭐ CREATIVE</button>
                 </div>
                 <div id="menu-controls" class="menu-controls-pc">
                     WASD · MOVE &nbsp;|&nbsp; MOUSE · LOOK &nbsp;|&nbsp; SHIFT · SPRINT &nbsp;|&nbsp; E · INTERACT &nbsp;|&nbsp; TAB · INVENTORY &nbsp;|&nbsp; F · FLASHLIGHT &nbsp;|&nbsp; C · CROUCH
@@ -140,7 +143,29 @@
                 <div id="pause-title">PAUSED</div>
                 <button id="btn-resume" class="mbtn">▶ RESUME</button>
                 <button id="btn-options2" class="mbtn">⚙ OPTIONS</button>
+                <button id="btn-dev2" class="mbtn">🔧 DEV MODE</button>
+                <button id="btn-creative2" class="mbtn">⭐ CREATIVE</button>
+                <button id="btn-give-items" class="mbtn hidden">🎁 GIVE ITEMS</button>
                 <button id="btn-menu2" class="mbtn">◀ MAIN MENU</button>
+            </div>
+        </div>
+
+        <!-- Dev Panel -->
+        <div id="dev-panel" class="hidden">
+            <div id="dev-inner">
+                <div id="dev-title">🔧 DEV MODE</div>
+                <div id="dev-subtitle">SELECT LEVEL TO TELEPORT</div>
+                <div id="dev-levels"></div>
+                <button id="btn-dev-close" class="mbtn">✕ CLOSE</button>
+            </div>
+        </div>
+
+        <!-- Creative Items Panel -->
+        <div id="creative-panel" class="hidden">
+            <div id="creative-inner">
+                <div id="creative-title">⭐ CREATIVE ITEMS</div>
+                <div id="creative-items"></div>
+                <button id="btn-creative-panel-close" class="mbtn">✕ CLOSE</button>
             </div>
         </div>
 

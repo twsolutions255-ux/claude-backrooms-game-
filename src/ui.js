@@ -62,6 +62,11 @@ export class UI {
     this.optPCBtn     = document.getElementById('opt-pc');
     this.optMobileBtn = document.getElementById('opt-mobile');
 
+    // Dev / creative panels
+    this.devPanel = document.getElementById('dev-panel');
+    this.creativePanel = document.getElementById('creative-panel');
+    this.creativeIndicator = document.getElementById('creative-indicator');
+
     // Platform state
     this.isMobile = false; // set externally by Game via setPlatform()
 
@@ -72,9 +77,12 @@ export class UI {
     this.eventNotifyTimer = 0;
     this.eventNotifyQueue = [];
     this.currentState = 'menu';
+    this._creativeActive = false;
 
     this._bindButtons();
     this._buildInventoryGrid();
+    this._buildDevPanel();
+    this._buildCreativePanel();
   }
 
   // Called by Game after auto-detection; also called on toggle
@@ -110,6 +118,8 @@ export class UI {
         if (this.currentState === 'playing') this.toggleInventory();
       }
       if (e.code === 'Escape') {
+        if (this.creativePanel && !this.creativePanel.classList.contains('hidden')) { this._hideCreativePanel(); return; }
+        if (this.devPanel && !this.devPanel.classList.contains('hidden')) { this._hideDevPanel(); return; }
         if (this.inventoryOpen) { this.toggleInventory(); return; }
         if (this.currentState === 'playing') this._emit('pause');
         else if (this.currentState === 'paused') this._emit('resume');
@@ -121,6 +131,99 @@ export class UI {
         }
       }
     });
+
+    // Hotbar tap-to-select (mobile friendly)
+    for (let i = 0; i < 5; i++) {
+      document.getElementById(`slot${i}`)?.addEventListener('click', () => {
+        if (this.currentState === 'playing' && !this.inventoryOpen) {
+          this._emit('hotbar_select', { slot: i });
+        }
+      });
+    }
+
+    // Inventory backdrop click-to-close
+    this.inventory?.addEventListener('click', e => {
+      if (e.target === this.inventory) this.toggleInventory();
+    });
+
+    // Dev mode
+    document.getElementById('btn-dev')?.addEventListener('click', () => this._showDevPanel());
+    document.getElementById('btn-dev2')?.addEventListener('click', () => this._showDevPanel());
+    document.getElementById('btn-dev-close')?.addEventListener('click', () => this._hideDevPanel());
+
+    // Creative mode toggle
+    document.getElementById('btn-creative')?.addEventListener('click', () => this._toggleCreative());
+    document.getElementById('btn-creative2')?.addEventListener('click', () => this._toggleCreative());
+
+    // Creative items panel
+    document.getElementById('btn-give-items')?.addEventListener('click', () => this._showCreativePanel());
+    document.getElementById('btn-creative-panel-close')?.addEventListener('click', () => this._hideCreativePanel());
+  }
+
+  _buildDevPanel() {
+    const container = document.getElementById('dev-levels');
+    if (!container) return;
+    const levels = [
+      [1,  'L.0   THE LOBBY'],
+      [2,  'L.0B  THE LOBBY'],
+      [3,  'L.1   WAREHOUSE'],
+      [4,  'L.1B  WAREHOUSE'],
+      [5,  'L.2   PIPE DREAMS'],
+      [6,  'L.3   ELECTRICAL'],
+      [7,  'L.3B  ELECTRICAL'],
+      [8,  'L.37  POOLROOMS'],
+      [9,  'L.FUN THE PARTY'],
+      [10, 'L.10  BEYOND'],
+      [11, 'L.11  DEEPER'],
+      [12, 'L.12  THE VOID'],
+    ];
+    for (const [n, label] of levels) {
+      const btn = document.createElement('button');
+      btn.className = 'dev-level-btn';
+      btn.textContent = label;
+      btn.addEventListener('click', () => {
+        this._hideDevPanel();
+        this._emit('dev_tp_level', { level: n });
+      });
+      container.appendChild(btn);
+    }
+  }
+
+  _buildCreativePanel() {
+    const container = document.getElementById('creative-items');
+    if (!container) return;
+    for (const [id, def] of Object.entries(ITEMS)) {
+      const btn = document.createElement('button');
+      btn.className = 'creative-item-btn';
+      btn.innerHTML = `<span class="creative-item-icon">${def.icon}</span><span class="creative-item-name">${def.name}</span>`;
+      btn.addEventListener('click', () => this._emit('creative_give_item', { type: id }));
+      container.appendChild(btn);
+    }
+  }
+
+  _showDevPanel() {
+    this.devPanel?.classList.remove('hidden');
+  }
+  _hideDevPanel() {
+    this.devPanel?.classList.add('hidden');
+  }
+  _showCreativePanel() {
+    this.creativePanel?.classList.remove('hidden');
+  }
+  _hideCreativePanel() {
+    this.creativePanel?.classList.add('hidden');
+  }
+
+  _toggleCreative() {
+    this._creativeActive = !this._creativeActive;
+    const label = this._creativeActive ? '⭐ CREATIVE: ON' : '⭐ CREATIVE';
+    document.getElementById('btn-creative')?.textContent !== undefined &&
+      (document.getElementById('btn-creative').textContent = label);
+    document.getElementById('btn-creative2')?.textContent !== undefined &&
+      (document.getElementById('btn-creative2').textContent = label);
+    document.getElementById('btn-give-items')?.classList.toggle('hidden', !this._creativeActive);
+    if (this.creativeIndicator) this.creativeIndicator.classList.toggle('hidden', !this._creativeActive);
+    this._emit('toggle_creative', { active: this._creativeActive });
   }
 
   _emit(event, data) {
@@ -346,7 +449,8 @@ export class UI {
     this.currentState = state;
     // Hide all
     [this.mainMenu, this.deathScreen, this.saveScreen, this.loadingScreen,
-     this.optionsScreen, this.pauseScreen, this.hud, this.inventory].forEach(el => {
+     this.optionsScreen, this.pauseScreen, this.hud, this.inventory,
+     this.devPanel, this.creativePanel].forEach(el => {
       if (el) el.classList.add('hidden');
     });
     if (this.pointerMsg) this.pointerMsg.classList.remove('hide');

@@ -115,6 +115,45 @@ export const ITEMS = {
       return true;
     }
   },
+  compass: {
+    id: 'compass', name: 'Compass', icon: '🧭',
+    desc: 'A rusted compass. The needle always points to the exit. Passive.',
+    rarity: RARITY.RARE, stackable: false,
+    passive: true,
+    use(player) { return false; } // passive — no direct use
+  },
+  map_upgrade: {
+    id: 'map_upgrade', name: 'Level Map', icon: '🗺️',
+    desc: 'A partial map of this level. Reveals the exit and items on your minimap. Passive.',
+    rarity: RARITY.RARE, stackable: false,
+    passive: true,
+    use(player) { return false; }
+  },
+  night_vision_goggles: {
+    id: 'night_vision_goggles', name: 'Night Vision', icon: '🥽',
+    desc: 'Boosts ambient light for 30 seconds. Invaluable in the dark levels.',
+    rarity: RARITY.EPIC, stackable: true, maxStack: 2,
+    use(player, game) {
+      if (game) game.activateNightVision(30);
+      return true;
+    }
+  },
+  walkman: {
+    id: 'walkman', name: 'Walkman', icon: '📻',
+    desc: 'Static-y music player. Passively slows sanity drain by half.',
+    rarity: RARITY.UNCOMMON, stackable: false,
+    passive: true,
+    use(player) { return false; }
+  },
+  vent_tool: {
+    id: 'vent_tool', name: 'Vent Key', icon: '🔩',
+    desc: 'Opens maintenance vents. Some vents are shortcuts to the exit.',
+    rarity: RARITY.UNCOMMON, stackable: false,
+    use(player, game) {
+      if (game) game.tryOpenVent();
+      return false;
+    }
+  },
 };
 
 export class WorldItem {

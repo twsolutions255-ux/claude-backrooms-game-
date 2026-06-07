@@ -223,6 +223,16 @@ export class Renderer {
   _renderSprites(map, player, entities, worldItems) {
     const sprites = [];
 
+    // Exit portal sprite
+    if (map.exitX !== undefined) {
+      sprites.push({
+        x: map.exitX + 0.5, y: map.exitY + 0.5,
+        type: 'exit_portal',
+        bobTime: (performance.now() / 1000),
+        dist: (map.exitX + 0.5 - player.x) ** 2 + (map.exitY + 0.5 - player.y) ** 2
+      });
+    }
+
     // Entity sprites
     for (const e of entities) {
       if (!e.alive) continue;
@@ -294,6 +304,35 @@ export class Renderer {
   _spritePixel(sprite, tx, ty) {
     if (sprite.type === 'entity') return this._entityPixel(sprite.entity, tx, ty);
     if (sprite.type === 'item') return this._itemPixel(sprite.item, tx, ty);
+    if (sprite.type === 'exit_portal') return this._exitPortalPixel(tx, ty, sprite.bobTime);
+    return 0;
+  }
+
+  _exitPortalPixel(tx, ty, time) {
+    const cx = tx - 32, cy = ty - 32;
+    const dist = Math.sqrt(cx * cx + cy * cy);
+    const pulse = 0.5 + 0.5 * Math.sin(time * 3);
+
+    // Outer ring — pulsing green
+    if (dist > 18 && dist < 24) {
+      const fade = 1 - Math.abs(dist - 21) / 3;
+      const bright = Math.floor(180 * fade * (0.6 + 0.4 * pulse));
+      return (bright << 24) | (0x00 << 16) | (bright << 8) | 0x20;
+    }
+    // Inner shimmer
+    if (dist < 18) {
+      const shimmer = Math.sin(cx * 0.5 + time * 4) * Math.cos(cy * 0.5 + time * 3);
+      if (shimmer > 0.3) {
+        const a = Math.floor(120 * (shimmer - 0.3) / 0.7);
+        return (a << 24) | (0x40 << 16) | (0xFF << 8) | 0x80;
+      }
+    }
+    // Center glow dot
+    if (dist < 5) {
+      return (0xFF << 24) | (0xCC << 16) | (0xFF << 8) | 0xCC;
+    }
+    // Pillar/door frame
+    if (Math.abs(cx) < 3 && ty > 5 && ty < 60 && ty !== 32) return 0xFF204020 | 0xFF000000;
     return 0;
   }
 
@@ -383,40 +422,144 @@ export class Renderer {
   }
 
   _itemPixel(item, tx, ty) {
-    // Simple geometric item sprites
-    const cx = Math.abs(tx - 32), cy = Math.abs(ty - 48); // centered lower
+    const bob = Math.round(Math.sin((item.bobTime || 0) * 1.2) * 3);
+    const ay = ty - bob; // bob shifts the whole sprite
+    const acx = tx - 32, acy = ay - 44;
+    const cx = Math.abs(acx), cy = Math.abs(acy);
+    const gDist = Math.sqrt(acx * acx + acy * acy);
+
+    // Per-item glow color (ABGR)
+    let glowR = 200, glowG = 200, glowB = 60; // default yellow
+    switch(item.type) {
+      case 'medkit':         glowR=60;  glowG=80;  glowB=220; break; // blue
+      case 'battery':        glowR=40;  glowG=210; glowB=60;  break; // green
+      case 'almond_water':   glowR=60;  glowG=210; glowB=220; break; // cyan
+      case 'key':            glowR=200; glowG=180; glowB=20;  break; // gold
+      case 'compass':        glowR=255; glowG=100; glowB=30;  break; // orange
+      case 'map_upgrade':    glowR=220; glowG=220; glowB=255; break; // white-blue
+      case 'fire_axe':       glowR=220; glowG=60;  glowB=20;  break; // red
+      case 'pipe':           glowR=150; glowG=150; glowB=160; break; // grey
+      case 'flash_grenade':  glowR=255; glowG=255; glowB=180; break; // white
+      case 'emergency_lantern': glowR=255; glowG=140; glowB=20; break; // amber
+      case 'flashlight_heavy':  glowR=180; glowG=220; glowB=255; break; // pale blue
+      case 'night_vision_goggles': glowR=40; glowG=255; glowB=100; break;
+    }
+
+    // Outer glow halo ring (pulsing)
+    const pulseR = 15 + Math.sin((item.bobTime || 0) * 2.5) * 2;
+    if (gDist > pulseR - 2 && gDist < pulseR + 2) {
+      const fade = 1 - Math.abs(gDist - pulseR) / 2;
+      const ga = Math.floor(180 * fade);
+      return (ga << 24) | (glowB << 16) | (glowG << 8) | glowR;
+    }
+    // Inner glow soft fill
+    if (gDist < pulseR - 2) {
+      const innerFade = Math.max(0, (pulseR - 2 - gDist) / (pulseR - 2)) * 0.18;
+      const ga2 = Math.floor(255 * innerFade);
+      return (ga2 << 24) | (glowB << 16) | (glowG << 8) | glowR;
+    }
+
+    // Item body
     switch(item.type) {
       case 'medkit': {
-        if (cx < 14 && cy < 10) {
-          if (cx < 4 || cy < 4) return 0xFF2020C0 | 0xFF000000; // border
-          if (cx < 2 || cy < 2) return 0xFF6060FF | 0xFF000000; // cross
-          return 0xFF4040E0 | 0xFF000000;
+        if (cx < 12 && cy < 9) {
+          // White cross on blue background
+          if (cx < 4 && cy < 9) return 0xFF3030AA | 0xFF000000; // side bar cross
+          if (cx < 12 && cy < 3) return 0xFF3030AA | 0xFF000000; // top bar cross
+          return 0xFF2020CC | 0xFF000000; // box body
         }
         return 0;
       }
       case 'battery': {
-        if (cx < 8 && cy < 18) return 0xFF20A020 | 0xFF000000;
+        // Cylindrical green battery
+        if (cx < 5 && cy < 18) {
+          if (cy < 2 && cx < 3) return 0xFF30FF60 | 0xFF000000; // terminal
+          return 0xFF20B040 | 0xFF000000;
+        }
         return 0;
       }
       case 'almond_water': {
-        if (cx < 6 && cy < 16) return 0xFF40C0E0 | 0xFF000000;
+        // Bottle shape
+        if (cx < 3 && cy < 4) return 0xFF70E0F0 | 0xFF000000; // neck
+        if (cx < 7 && cy >= 4 && cy < 18) return 0xFF40B0D0 | 0xFF000000; // body
         return 0;
       }
       case 'key': {
-        if (cx < 4 && cy < 10) return 0xFFC0B000 | 0xFF000000;
+        // Key shape
+        if (cx < 5 && cy < 6) return 0xFFD0C020 | 0xFF000000; // bow
+        if (Math.abs(acx) < 2 && cy >= 5 && cy < 16) return 0xFFB8A018 | 0xFF000000; // shaft
+        if (cy >= 13 && cy < 16 && acx >= 2 && acx < 5) return 0xFFB8A018 | 0xFF000000; // teeth
+        return 0;
+      }
+      case 'compass': {
+        // Compass disc
+        if (gDist < 11) {
+          const angle = Math.atan2(acy, acx);
+          // North needle (red)
+          if (gDist < 9 && angle > -0.3 && angle < 0.3) return 0xFF2020CC | 0xFF000000;
+          // South needle (white)
+          if (gDist < 9 && (angle > 2.8 || angle < -2.8)) return 0xFF808080 | 0xFF000000;
+          return 0xFF444444 | 0xFF000000; // disc face
+        }
+        return 0;
+      }
+      case 'map_upgrade': {
+        // Map/paper shape
+        if (cx < 12 && cy < 10) {
+          if (cx < 12 && cy === 0) return 0xFFCCCCCC | 0xFF000000;
+          if (cx < 12 && cy === 9) return 0xFFCCCCCC | 0xFF000000;
+          if (cx === 0 && cy < 10) return 0xFFCCCCCC | 0xFF000000;
+          if (cx === 11 && cy < 10) return 0xFFCCCCCC | 0xFF000000;
+          // Grid lines suggesting a map
+          if (cy === 4 && cx < 10) return 0xFF888888 | 0xFF000000;
+          if (cx === 5 && cy < 9) return 0xFF888888 | 0xFF000000;
+          return 0xFFAAAAAA | 0xFF000000;
+        }
         return 0;
       }
       case 'pipe': {
-        if (cx < 3 && cy < 22) return 0xFF888888 | 0xFF000000;
+        if (cx < 4 && cy < 24) {
+          if (cx < 1) return 0xFF999999 | 0xFF000000;
+          return 0xFF777777 | 0xFF000000;
+        }
         return 0;
       }
       case 'fire_axe': {
-        if (cx < 4 && cy < 24) return 0xFF604020 | 0xFF000000;
-        if (cy < 8 && tx > 32 && tx < 50) return 0xFFC04020 | 0xFF000000; // blade
+        if (cx < 3 && cy < 26) return 0xFF604020 | 0xFF000000; // handle
+        if (cy < 10 && acx >= 3 && acx < 18) return 0xFFCC4020 | 0xFF000000; // blade
+        return 0;
+      }
+      case 'emergency_lantern': {
+        // Lantern shape
+        if (cx < 8 && cy < 5) return 0xFFFF8800 | 0xFF000000; // flame
+        if (cx < 6 && cy >= 4 && cy < 16) return 0xFF884400 | 0xFF000000; // body
+        return 0;
+      }
+      case 'flash_grenade': {
+        if (cx < 5 && cy < 14) {
+          if (cy < 3 && cx < 3) return 0xFFCCCCCC | 0xFF000000; // pin
+          return 0xFF686830 | 0xFF000000; // body
+        }
+        return 0;
+      }
+      case 'flashlight_heavy': {
+        if (cx < 4 && cy < 22) {
+          if (cy < 4) return 0xFFCCCCCC | 0xFF000000; // lens
+          return 0xFF444444 | 0xFF000000; // body
+        }
+        return 0;
+      }
+      case 'night_vision_goggles': {
+        // Goggles shape — two circles
+        if ((Math.abs(acx + 7) < 6 || Math.abs(acx - 7) < 6) && cy < 6) {
+          return 0xFF20AA40 | 0xFF000000;
+        }
+        if (Math.abs(acx) < 2 && cy < 3) return 0xFF204020 | 0xFF000000; // bridge
         return 0;
       }
       default: {
-        if (cx < 6 && cy < 6) return 0xFFD0D020 | 0xFF000000;
+        // Generic glowing orb
+        if (gDist < 8) return (0xFF000000) | (glowB << 16) | (glowG << 8) | glowR;
         return 0;
       }
     }
@@ -444,14 +587,20 @@ export class Renderer {
   }
 
   // ── MINIMAP (renders to a small canvas overlay) ───────────────────────────
-  renderMinimap(ctx, map, player, entities) {
+  renderMinimap(ctx, map, player, entities, opts = {}) {
     const scale = 4;
     const size = 80;
     const ox = 10, oy = 10;
+    const { showExit, showItems, worldItems, compassActive } = opts;
+    const now = performance.now() / 1000;
+
     ctx.save();
-    ctx.globalAlpha = 0.6;
+    ctx.globalAlpha = 0.7;
     ctx.fillStyle = '#000';
-    ctx.fillRect(ox, oy, size, size);
+    ctx.fillRect(ox - 1, oy - 1, size + 2, size + 2);
+    ctx.strokeStyle = 'rgba(245,230,163,0.25)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(ox - 1, oy - 1, size + 2, size + 2);
 
     const px = Math.floor(player.x), py = Math.floor(player.y);
     const halfCells = Math.floor(size / scale / 2);
@@ -461,14 +610,32 @@ export class Renderer {
         const mx2 = px + dx, my2 = py + dy;
         if (mx2 < 0 || mx2 >= MAP_W || my2 < 0 || my2 >= map.h) continue;
         const t = map.get(mx2, my2);
-        if (t === 0) ctx.fillStyle = '#2a2510';
-        else if (t === 10 || t === 11) ctx.fillStyle = '#8b6';
-        else ctx.fillStyle = '#554';
+        // Check special tiles
+        const key = `${mx2},${my2}`;
+        const special = map.specialTiles.get(key);
+        if (special?.type === 'save_room') ctx.fillStyle = '#448';
+        else if (special?.type === 'exit' && showExit) ctx.fillStyle = Math.sin(now * 4) > 0 ? '#0f8' : '#084';
+        else if (t === 0) ctx.fillStyle = '#252015';
+        else if (t === 10 || t === 11) ctx.fillStyle = '#896';
+        else ctx.fillStyle = '#443';
         ctx.fillRect(ox + (dx + halfCells) * scale, oy + (dy + halfCells) * scale, scale - 1, scale - 1);
       }
     }
 
+    // World item dots on minimap
+    if (showItems && worldItems) {
+      ctx.fillStyle = '#ff8';
+      for (const item of worldItems) {
+        if (item.collected) continue;
+        const idx = Math.floor(item.x) - px + halfCells;
+        const idy = Math.floor(item.y) - py + halfCells;
+        if (idx < 0 || idx >= size / scale || idy < 0 || idy >= size / scale) continue;
+        ctx.fillRect(ox + idx * scale + 1, oy + idy * scale + 1, 2, 2);
+      }
+    }
+
     // Player dot
+    ctx.globalAlpha = 0.9;
     ctx.fillStyle = '#ff0';
     const cx3 = ox + halfCells * scale, cy3 = oy + halfCells * scale;
     ctx.fillRect(cx3, cy3, scale, scale);
@@ -477,8 +644,8 @@ export class Renderer {
     ctx.strokeStyle = '#ff0';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(cx3 + scale/2, cy3 + scale/2);
-    ctx.lineTo(cx3 + scale/2 + player.dirX * 6, cy3 + scale/2 + player.dirY * 6);
+    ctx.moveTo(cx3 + scale / 2, cy3 + scale / 2);
+    ctx.lineTo(cx3 + scale / 2 + player.dirX * 7, cy3 + scale / 2 + player.dirY * 7);
     ctx.stroke();
 
     // Entity dots
@@ -487,7 +654,38 @@ export class Renderer {
       if (!e.alive) continue;
       const ex = ox + (Math.floor(e.x) - px + halfCells) * scale;
       const ey = oy + (Math.floor(e.y) - py + halfCells) * scale;
-      ctx.fillRect(ex, ey, scale, scale);
+      if (ex >= ox && ex < ox + size && ey >= oy && ey < oy + size)
+        ctx.fillRect(ex, ey, scale, scale);
+    }
+
+    // Compass arrow (pointing to exit)
+    if (compassActive && map.exitX !== undefined) {
+      const edx = map.exitX - player.x, edy = map.exitY - player.y;
+      const eDist = Math.sqrt(edx * edx + edy * edy);
+      const eNx = edx / eDist, eNy = edy / eDist;
+      const cxMid = ox + size / 2, cyMid = oy + size / 2;
+      const arrowLen = 32;
+      ctx.globalAlpha = 0.7 + 0.3 * Math.sin(now * 3);
+      ctx.strokeStyle = '#0f8';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cxMid, cyMid);
+      ctx.lineTo(cxMid + eNx * arrowLen, cyMid + eNy * arrowLen);
+      ctx.stroke();
+      // Arrow head
+      const angle = Math.atan2(eNy, eNx);
+      ctx.fillStyle = '#0f8';
+      ctx.beginPath();
+      ctx.moveTo(cxMid + eNx * arrowLen, cyMid + eNy * arrowLen);
+      ctx.lineTo(cxMid + eNx * arrowLen - Math.cos(angle - 0.5) * 6, cyMid + eNy * arrowLen - Math.sin(angle - 0.5) * 6);
+      ctx.lineTo(cxMid + eNx * arrowLen - Math.cos(angle + 0.5) * 6, cyMid + eNy * arrowLen - Math.sin(angle + 0.5) * 6);
+      ctx.closePath();
+      ctx.fill();
+      // Distance text
+      ctx.globalAlpha = 0.8;
+      ctx.fillStyle = '#0f8';
+      ctx.font = '8px Courier New';
+      ctx.fillText(`${Math.round(eDist)}m`, ox + 2, oy + size - 3);
     }
 
     ctx.restore();

@@ -66,6 +66,9 @@ export class Game {
 
     // Save data
     this.saveData = null;
+    this.creativeMode = false;
+    this._nearExitNotified = false;
+    this._nightVisionTimer = 0;
 
     // Death messages
     this.DEATH_MESSAGES = [
@@ -162,6 +165,28 @@ export class Game {
     this.ui.on('equip_weapon', ({ type }) => { this.inventory.equipWeapon(type); });
     this.ui.on('drop_item', ({ slot }) => { this.inventory.remove(slot); });
     this.ui.on('hotbar_select', ({ slot }) => { this.inventory.selectSlot(slot); });
+    this.ui.on('dev_tp_level', async ({ level }) => {
+      await this.audio.init();
+      this.audio.resume();
+      this.level = level;
+      await this.loadLevel(level);
+    });
+    this.ui.on('toggle_creative', ({ active }) => {
+      this.creativeMode = active;
+      if (this.events && this.state !== 'menu') {
+        this.events.pendingNotifications.push({
+          text: active ? '⭐ CREATIVE MODE ON' : 'CREATIVE MODE OFF', duration: 3
+        });
+      }
+    });
+    this.ui.on('creative_give_item', ({ type }) => {
+      if (!this.inventory) return;
+      const added = this.inventory.add(type);
+      if (added && this.events) {
+        const def = ITEMS[type];
+        this.events.pendingNotifications.push({ text: `+ ${def?.name || type}`, duration: 2 });
+      }
+    });
     this.ui.on('inventory_toggle', ({ open }) => {
       if (this.player) {
         if (open) {
@@ -309,6 +334,8 @@ export class Game {
     this.placedLanterns = [];
     this.isChaseActive = false;
     this.inSaveRoom = false;
+    this._nearExitNotified = false;
+    this._nightVisionTimer = 0;
 
     // Apply options
     const opts = this.ui.getOptions();
@@ -579,6 +606,38 @@ export class Game {
     this.map.addLight(x, y, 6, 0.9, 1.0, 0.9, 0.7);
   }
 
+  activateNightVision(duration) {
+    this._nightVisionTimer = duration;
+    this.renderer.ambientLight = Math.max(this.renderer.ambientLight, 0.4);
+    this.events.pendingNotifications.push({ text: '🥽 Night vision active', duration: 3 });
+  }
+
+  tryOpenVent() {
+    if (!this.player) return;
+    const reach = 1.5;
+    const tx = Math.floor(this.player.x + this.player.dirX * reach);
+    const ty2 = Math.floor(this.player.y + this.player.dirY * reach);
+    if (this.map.get(tx, ty2) === T.VENT) {
+      this.events.pendingNotifications.push({ text: 'Vent opened — shortcut ahead!', duration: 3 });
+      this.map.set(tx, ty2, T.EMPTY);
+      this.audio.playDoorOpen();
+    }
+  }
+
+  _devTeleport(level) {
+    this.level = level;
+    this.loadLevel(level);
+  }
+
+  _creativeGiveItem(type) {
+    if (!this.inventory) return;
+    const added = this.inventory.add(type);
+    if (added && this.events) {
+      const def = ITEMS[type];
+      this.events.pendingNotifications.push({ text: `+ ${def?.name || type}`, duration: 2 });
+    }
+  }
+
   // ── MAIN LOOP ─────────────────────────────────────────────────────────────
   loop(timestamp) {
     if (this.state !== STATES.PLAYING && this.state !== STATES.SAVE_ROOM) return;
@@ -596,6 +655,11 @@ export class Game {
 
     // Player
     this.player.update(dt, this.map, this.disturbance);
+
+    // Creative mode — immortality
+    if (this.creativeMode && this.player && this.player.health < 10) {
+      this.player.health = 10;
+    }
 
     // Check player death
     if (this.player.health <= 0) {
@@ -738,6 +802,52 @@ export class Game {
       }
     }
 
+    // Exit proximity detection + edge glow
+    if (this.map?.exitX !== undefined && this.player) {
+      const edx = this.map.exitX - this.player.x, edy = this.map.exitY - this.player.y;
+      const exitDist = Math.sqrt(edx * edx + edy * edy);
+      this.effects.exitProximity = Math.max(0, 1 - exitDist / 12);
+      if (exitDist < 12 && !this._nearExitNotified) {
+        this._nearExitNotified = true;
+        this.events.pendingNotifications.push({ text: '▼ EXIT DETECTED NEARBY', duration: 5 });
+      }
+      if (exitDist >= 14) this._nearExitNotified = false;
+    } else {
+      this.effects.exitProximity = 0;
+    }
+
+    // Entity footstep shake during chase
+    if (this.isChaseActive && this.player) {
+      for (const e of this.entities) {
+        if (!e.alive || !e.isChasing()) continue;
+        if (!e._stepTimer) e._stepTimer = 0;
+        e._stepTimer += dt;
+        const stepInterval = 0.45 / Math.max(1, e.chaseSpeed || 4);
+        const eDist = e.distanceTo(this.player.x, this.player.y);
+        if (e._stepTimer >= stepInterval && eDist < 18) {
+          e._stepTimer = 0;
+          const intensity = Math.max(0, 1 - eDist / 18) * 0.07;
+          this.player.shake(intensity, 0.12);
+        }
+      }
+    }
+
+    // Night vision timer
+    if (this._nightVisionTimer > 0) {
+      this._nightVisionTimer -= dt;
+      if (this._nightVisionTimer <= 0) {
+        this.renderer.ambientLight = this.map.ambientBase;
+        this.events.pendingNotifications.push({ text: 'Night vision faded', duration: 2 });
+      }
+    }
+
+    // Passive item effects
+    const hasWalkman = this.inventory.slots.some(s => s?.type === 'walkman');
+    if (hasWalkman && this.player) {
+      // Walkman: restore 0.5 sanity/sec (counters natural drain)
+      this.player.sanity = Math.min(this.player.maxSanity, this.player.sanity + dt * 0.5);
+    }
+
     // Renderer brightness from events
     if (!this.events.activeEvents.has('light_flicker') && !this.events.activeEvents.has('power_outage')) {
       this.renderer.brightness = 1.0;
@@ -830,8 +940,15 @@ export class Game {
   render() {
     if (!this.map || !this.player) return;
     this.renderer.render(this.map, this.player, this.entities, this.worldItems);
-    // Minimap in top-left
-    this.renderer.renderMinimap(this.ctx, this.map, this.player, this.entities);
+    // Minimap with upgrade flags
+    const hasMap = this.creativeMode || this.inventory.slots.some(s => s?.type === 'map_upgrade');
+    const hasCompass = this.creativeMode || this.inventory.slots.some(s => s?.type === 'compass');
+    this.renderer.renderMinimap(this.ctx, this.map, this.player, this.entities, {
+      showExit: hasMap,
+      showItems: hasMap,
+      worldItems: this.worldItems,
+      compassActive: hasCompass,
+    });
     // VHS effects pass
     this.effects.render(this.ctx);
   }

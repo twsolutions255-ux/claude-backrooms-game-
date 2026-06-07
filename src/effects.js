@@ -29,6 +29,9 @@ export class EffectsSystem {
     // Blackout (power outage)
     this.blackoutLevel = 0;
 
+    // Exit proximity pulse (0-1)
+    this.exitProximity = 0;
+
     // Heartbeat visual
     this.heartbeatActive = false;
     this.heartbeatBPM = 80;
@@ -272,6 +275,19 @@ export class EffectsSystem {
       ctx.save();
       ctx.globalAlpha = Math.min(1, this.blackoutLevel);
       ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
+
+    // ── EXIT PROXIMITY EDGE PULSE ─────────────────────────────────────────
+    if (this.exitProximity > 0.05) {
+      const pulse = (Math.sin(this.pulseTimer * 3.5) * 0.5 + 0.5);
+      ctx.save();
+      ctx.globalAlpha = this.exitProximity * 0.35 * (0.5 + pulse * 0.5);
+      const exitGrad = ctx.createRadialGradient(W/2, H/2, H * 0.3, W/2, H/2, H * 0.85);
+      exitGrad.addColorStop(0, 'transparent');
+      exitGrad.addColorStop(1, 'rgba(0,200,80,0.8)');
+      ctx.fillStyle = exitGrad;
       ctx.fillRect(0, 0, W, H);
       ctx.restore();
     }

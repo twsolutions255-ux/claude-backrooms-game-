@@ -286,7 +286,7 @@ export class GameMap {
   }
 
   // A* pathfinding (grid-based)
-  findPath(sx, sy, ex, ey, maxSteps = 200) {
+  findPath(sx, sy, ex, ey, maxSteps = 1200) {
     sx = Math.floor(sx); sy = Math.floor(sy);
     ex = Math.floor(ex); ey = Math.floor(ey);
     if (sx === ex && sy === ey) return [];

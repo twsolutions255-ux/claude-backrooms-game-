@@ -10,11 +10,11 @@ const LEVEL_THEMES = {
     name: 'The Lobby — Level 0',
     wallTypes: [T.WALL_PAPER, T.WALL_PAPER, T.WALL_PAPER, T.WALL_DARK],
     floorType: T.FLOOR_CARPET,
-    ambientBase: 0.55,     // BRIGHT — the horror is well-lit sameness
+    ambientBase: 0.55,
     fogDensity: 0.04,
     fogColorR: 0.06, fogColorG: 0.05, fogColorB: 0.01,
-    entityTypes: [],       // no entities — monotony IS the horror
-    roomPool: ['lobby_standard', 'lobby_standard', 'lobby_corridor', 'lobby_corridor', 'lobby_void'],
+    entityTypes: [],
+    roomPool: ['lobby_standard', 'lobby_standard', 'lobby_corridor', 'lobby_corridor', 'lobby_void', 'lobby_void_corridor'],
     floorTexName: 'carpet',
     ambientProfile: 'lobby',
   },
@@ -26,7 +26,7 @@ const LEVEL_THEMES = {
     fogDensity: 0.09,
     fogColorR: 0.02, fogColorG: 0.03, fogColorB: 0.04,
     entityTypes: ['hound', 'faceling', 'faceling'],
-    roomPool: ['warehouse_bay', 'warehouse_bay', 'warehouse_corridor', 'warehouse_dark'],
+    roomPool: ['warehouse_bay', 'warehouse_bay', 'warehouse_corridor', 'warehouse_dark', 'warehouse_pillar_forest', 'warehouse_flooded'],
     floorTexName: 'concrete',
     ambientProfile: 'warehouse',
   },
@@ -34,11 +34,11 @@ const LEVEL_THEMES = {
     name: 'Pipe Dreams — Level 2',
     wallTypes: [T.WALL_PIPE],
     floorType: T.FLOOR_CONCRETE,
-    ambientBase: 0.04,     // near darkness
+    ambientBase: 0.04,
     fogDensity: 0.14,
     fogColorR: 0.03, fogColorG: 0.01, fogColorB: 0.01,
     entityTypes: ['hound', 'smiler', 'smiler'],
-    roomPool: ['pipe_corridor', 'pipe_junction', 'pipe_wide'],
+    roomPool: ['pipe_corridor', 'pipe_junction', 'pipe_wide', 'pipe_vent_room'],
     floorTexName: 'concrete',
     ambientProfile: 'pipes',
   },
@@ -50,7 +50,7 @@ const LEVEL_THEMES = {
     fogDensity: 0.10,
     fogColorR: 0.05, fogColorG: 0.03, fogColorB: 0.01,
     entityTypes: ['hound', 'deathmoth', 'deathmoth'],
-    roomPool: ['electrical_room', 'electrical_corridor', 'electrical_junction'],
+    roomPool: ['electrical_room', 'electrical_corridor', 'electrical_junction', 'electrical_switch_room'],
     floorTexName: 'concrete',
     ambientProfile: 'electrical',
   },
@@ -259,12 +259,81 @@ function party_corridor(map, x, y, w, h, theme) {
   return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
 }
 
+// ── EXTRA ATMOSPHERE ROOMS ───────────────────────────────────────────────────
+
+// Ultra-long void corridor — the liminal horror of infinite sameness
+function lobby_void_corridor(map, x, y, w, h, theme) {
+  const len = Math.max(w, h, 28); // force long corridor
+  const isHoriz = Math.random() < 0.5;
+  const rw = isHoriz ? len : 3, rh = isHoriz ? 3 : len;
+  const cx2 = x + Math.floor(rw / 2), cy2 = y + Math.floor(rh / 2);
+  map.carveRoom(x, y, Math.min(rw, MAP_W - x - 2), Math.min(rh, map.h - y - 2), T.WALL_PAPER, theme.floorType, 1);
+  // Identical ceiling lights at regular intervals — OCD regularity = dread
+  if (isHoriz) {
+    for (let lx2 = x + 4; lx2 < x + rw - 2; lx2 += 6) map.setCeiling(lx2, cy2, 1);
+  } else {
+    for (let ly2 = y + 4; ly2 < y + rh - 2; ly2 += 6) map.setCeiling(cx2, ly2, 1);
+  }
+  map.specialTiles.set(`${cx2},${cy2}`, { type: 'liminal' });
+  return { cx: cx2, cy: cy2 };
+}
+
+// Pillar forest — warehouse with dense pillar grid, hounds lurk between
+function warehouse_pillar_forest(map, x, y, w, h, theme) {
+  const fw = Math.max(w, 14), fh = Math.max(h, 14);
+  map.carveRoom(x, y, fw, fh, T.WALL_CONCRETE, theme.floorType, 0);
+  // Grid of pillars — entities path around them
+  for (let py2 = y + 3; py2 < y + fh - 2; py2 += 3)
+    for (let px2 = x + 3; px2 < x + fw - 2; px2 += 3)
+      if (Math.random() < 0.6) map.set(px2, py2, T.WALL_CONCRETE);
+  // Dim amber light — shadows everywhere
+  map.addLight(x + fw/2, y + fh/2, 12, 0.35, 1.0, 0.78, 0.35, 3.5);
+  return { cx: x + Math.floor(fw/2), cy: y + Math.floor(fh/2) };
+}
+
+// Switch room — find the breaker to unlock the path
+function electrical_switch_room(map, x, y, w, h, theme) {
+  map.carveRoom(x, y, w, h, T.WALL_BRICK_RED, theme.floorType, 0);
+  map.addLight(x + w/2, y + h/2, 8, 0.7, 1.0, 0.55, 0.08, 1.5);
+  // Circuit breaker boxes on walls
+  if (w > 7) {
+    map.set(x + 2, y + 1, T.WALL_METAL);
+    map.set(x + w - 3, y + 1, T.WALL_METAL);
+  }
+  map.specialTiles.set(`${x+Math.floor(w/2)},${y+Math.floor(h/2)}`, { type: 'event_scream' });
+  return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+}
+
+// Vent room — narrow room with a vent that could be a shortcut
+function pipe_vent_room(map, x, y, w, h, theme) {
+  const rw = Math.max(w, 5), rh = Math.max(h, 4);
+  map.carveRoom(x, y, rw, rh, T.WALL_PIPE, theme.floorType, 2);
+  // Vent openings marked by VENT tile
+  if (rw > 6) {
+    map.set(x + 1, y + Math.floor(rh / 2), T.VENT);
+    map.set(x + rw - 2, y + Math.floor(rh / 2), T.VENT);
+  }
+  map.addLight(x + rw/2, y + rh/2, 3, 0.25, 0.7, 0.1, 0.1);
+  return { cx: x + Math.floor(rw/2), cy: y + Math.floor(rh/2) };
+}
+
+// Flooded room — ankle-deep water, eerie reflections
+function warehouse_flooded(map, x, y, w, h, theme) {
+  map.carveRoom(x, y, w, h, T.WALL_CONCRETE, T.FLOOR_POOL, 0);
+  for (let cy2 = y + 1; cy2 < y + h - 1; cy2++)
+    for (let cx2 = x + 1; cx2 < x + w - 1; cx2++)
+      map.setFloor(cx2, cy2, T.FLOOR_POOL);
+  map.addLight(x + w/2, y + h/2, 8, 0.3, 0.6, 0.8, 1.0);
+  map.specialTiles.set(`${x+Math.floor(w/2)},${y+Math.floor(h/2)}`, { type: 'flooded' });
+  return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+}
+
 // ── ROOM TEMPLATE REGISTRY ───────────────────────────────────────────────────
 const ROOM_TEMPLATES = {
-  lobby_standard, lobby_corridor, lobby_void,
-  warehouse_bay, warehouse_corridor, warehouse_dark,
-  pipe_corridor, pipe_junction, pipe_wide,
-  electrical_room, electrical_corridor, electrical_junction,
+  lobby_standard, lobby_corridor, lobby_void, lobby_void_corridor,
+  warehouse_bay, warehouse_corridor, warehouse_dark, warehouse_pillar_forest, warehouse_flooded,
+  pipe_corridor, pipe_junction, pipe_wide, pipe_vent_room,
+  electrical_room, electrical_corridor, electrical_junction, electrical_switch_room,
   pool_chamber, pool_corridor, pool_dark_room,
   party_main, party_corridor,
 };
@@ -521,21 +590,23 @@ export function generateLevel(level = 1) {
 // ── ITEM TABLES ──────────────────────────────────────────────────────────────
 function pickLootItem(level, theme) {
   const base = ['medkit', 'medkit', 'battery', 'battery', 'battery',
-    'almond_water', 'flashlight_heavy', 'security_keycard', 'emergency_lantern'];
-  if (level >= 2) base.push('flash_grenade', 'weapon_part');
-  if (level >= 3) base.push('fire_axe', 'motion_sensor');
-  if (theme === 'pipes') base.push('battery', 'emergency_lantern'); // more light sources
-  if (theme === 'party') base.push('almond_water', 'almond_water');
+    'almond_water', 'flashlight_heavy', 'security_keycard', 'emergency_lantern',
+    'compass', 'map_upgrade'];  // rare navigational loot
+  if (level >= 2) base.push('flash_grenade', 'weapon_part', 'night_vision_goggles');
+  if (level >= 3) base.push('fire_axe', 'motion_sensor', 'walkman');
+  if (level >= 4) base.push('vent_tool');
+  if (theme === 'pipes') base.push('battery', 'emergency_lantern', 'night_vision_goggles');
+  if (theme === 'party') base.push('almond_water', 'almond_water', 'flash_grenade');
   return pick(base);
 }
 
 function pickThemeItem(theme, level) {
   const base = ['battery', 'battery', 'battery', 'medkit', 'almond_water', 'almond_water'];
-  if (theme === 'lobby') return pick(['battery', 'almond_water', 'key', 'tool']);
-  if (theme === 'warehouse') return pick([...base, 'pipe', 'key', 'tool']);
-  if (theme === 'pipes') return pick(['battery', 'battery', 'emergency_lantern', 'medkit']);
-  if (theme === 'electrical') return pick([...base, 'security_keycard', 'weapon_part']);
-  if (theme === 'poolrooms') return pick(['almond_water', 'almond_water', 'medkit']);
-  if (theme === 'party') return pick(['almond_water', 'medkit', 'flash_grenade']);
+  if (theme === 'lobby') return pick(['battery', 'almond_water', 'key', 'tool', 'walkman']);
+  if (theme === 'warehouse') return pick([...base, 'pipe', 'key', 'tool', 'compass']);
+  if (theme === 'pipes') return pick(['battery', 'battery', 'emergency_lantern', 'medkit', 'vent_tool']);
+  if (theme === 'electrical') return pick([...base, 'security_keycard', 'weapon_part', 'map_upgrade']);
+  if (theme === 'poolrooms') return pick(['almond_water', 'almond_water', 'medkit', 'walkman']);
+  if (theme === 'party') return pick(['almond_water', 'medkit', 'flash_grenade', 'compass']);
   return pick(base);
 }
