@@ -25,6 +25,16 @@ export class AudioSystem {
     this._breathingNode = null;
     this._breathingTimer = 0;
     this._isBreathing = false;
+
+    // Heartbeat
+    this._heartbeatActive = false;
+    this._heartbeatBPM = 80;
+    this._heartbeatTimer = 0;
+
+    // Per-level ambient profile
+    this._levelProfile = 'default';
+    this._levelAmbientNodes = [];
+    this._levelAmbientGain = null;
   }
 
   async init() {
@@ -390,21 +400,233 @@ export class AudioSystem {
 
   _transitionMusic(state, immediate) {
     if (!this.initialized) return;
-    // Clear existing music
-    if (this._musicOsc) {
+
+    // Fade out existing music
+    if (this._musicGainNode) {
       const t = this.ctx.currentTime;
-      this._musicGainNode.gain.exponentialRampToValueAtTime(0.001, t + (immediate ? 0.1 : 2));
-      setTimeout(() => { try { this._musicOsc.stop(); } catch(e) {} }, (immediate ? 0.2 : 2.2) * 1000);
-      this._musicOsc = null;
+      // Chase: quick cut to silence for drama
+      const fadeDur = (state === 'chase' && !immediate) ? 0.3 : (immediate ? 0.1 : 2.0);
+      this._musicGainNode.gain.cancelScheduledValues(t);
+      this._musicGainNode.gain.setValueAtTime(Math.max(0.001, this._musicGainNode.gain.value), t);
+      this._musicGainNode.gain.exponentialRampToValueAtTime(0.001, t + fadeDur);
+      if (this._musicOsc) {
+        const osc = this._musicOsc;
+        setTimeout(() => { try { osc.stop(); } catch(e) {} }, (fadeDur + 0.3) * 1000);
+        this._musicOsc = null;
+      }
+      this._musicGainNode = null;
     }
 
-    switch(state) {
-      case 'calm': this._startCalmMusic(); break;
-      case 'tense': this._startTenseMusic(); break;
-      case 'chase': this._startChaseMusic(); break;
-      case 'save': this._startSaveMusic(); break;
-      case 'none': break;
+    if (state === 'chase' && !immediate) {
+      // Silence for ~0.5s then SLAM chase music in at full volume
+      setTimeout(() => {
+        if (this._currentMusicState === 'chase') this._startChaseMusic();
+      }, 750);
+    } else {
+      const delay = immediate ? 0 : 200;
+      setTimeout(() => {
+        if (this._currentMusicState !== state) return;
+        switch(state) {
+          case 'calm': this._startCalmMusic(); break;
+          case 'tense': this._startTenseMusic(); break;
+          case 'chase': this._startChaseMusic(); break;
+          case 'save': this._startSaveMusic(); break;
+        }
+      }, delay);
     }
+  }
+
+  // ── HEARTBEAT ─────────────────────────────────────────────────────────────
+  setHeartbeat(active, bpm = 80) {
+    this._heartbeatActive = active;
+    this._heartbeatBPM = bpm;
+    if (!active) this._heartbeatTimer = 0;
+  }
+
+  _playHeartbeat() {
+    if (!this.initialized) return;
+    const t = this.ctx.currentTime;
+    // Lub (low thud)
+    this._playImpact(55, 0.05, 0.28, 0.94);
+    // Dub (slightly higher, slightly after)
+    setTimeout(() => { if (this.initialized) this._playImpact(45, 0.04, 0.20, 0.96); }, 110);
+  }
+
+  // ── PER-LEVEL AMBIENT PROFILES ────────────────────────────────────────────
+  setLevelAmbient(profile) {
+    if (profile === this._levelProfile) return;
+    this._levelProfile = profile;
+    // Stop current level ambient nodes
+    for (const n of this._levelAmbientNodes) { try { n.stop?.(); } catch(e) {} }
+    this._levelAmbientNodes = [];
+    if (this._levelAmbientGain) {
+      try { this._levelAmbientGain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 1); }
+      catch(e) {}
+      this._levelAmbientGain = null;
+    }
+    if (this.initialized) this._startLevelAmbient(profile);
+  }
+
+  _startLevelAmbient(profile) {
+    if (!this.initialized) return;
+    switch(profile) {
+      case 'lobby':       this._ambientFluorescent(); break;
+      case 'warehouse':   this._ambientIndustrial(); break;
+      case 'pipes':       this._ambientPipes(); break;
+      case 'electrical':  this._ambientElectrical(); break;
+      case 'poolrooms':   this._ambientPool(); break;
+      case 'party':       this._ambientParty(); break;
+    }
+  }
+
+  _makeLevelGain(vol = 0.3) {
+    const g = this.ctx.createGain();
+    g.gain.value = 0;
+    g.connect(this.ambientGain);
+    g.gain.linearRampToValueAtTime(vol, this.ctx.currentTime + 2);
+    this._levelAmbientGain = g;
+    return g;
+  }
+
+  _ambientFluorescent() {
+    // Loud fluorescent hum — migraine-inducing
+    const g = this._makeLevelGain(0.5);
+    const freqs = [120, 240, 480, 960];
+    for (const f of freqs) {
+      const osc = this.ctx.createOscillator();
+      const og = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = f;
+      og.gain.value = 0.03 / (f / 120);
+      osc.connect(og); og.connect(g);
+      osc.start();
+      this._levelAmbientNodes.push(osc);
+    }
+    // Occasional flicker click
+    this._scheduleFluorescentClicks();
+  }
+
+  _scheduleFluorescentClicks() {
+    if (this._levelProfile !== 'lobby' || !this.initialized) return;
+    const delay = 3000 + Math.random() * 10000;
+    setTimeout(() => {
+      this.playFlickerBuzz();
+      this._scheduleFluorescentClicks();
+    }, delay);
+  }
+
+  _ambientIndustrial() {
+    const g = this._makeLevelGain(0.25);
+    // Low industrial echo
+    const drone = this.ctx.createOscillator();
+    const dg = this.ctx.createGain();
+    drone.type = 'sawtooth';
+    drone.frequency.value = 40;
+    dg.gain.value = 0.015;
+    const f = this.ctx.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = 150;
+    drone.connect(f); f.connect(dg); dg.connect(g);
+    drone.start();
+    this._levelAmbientNodes.push(drone);
+  }
+
+  _ambientPipes() {
+    const g = this._makeLevelGain(0.35);
+    // Pipe hiss — high bandpass noise
+    const bufSize = this.ctx.sampleRate * 2;
+    const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf; src.loop = true;
+    const filt = this.ctx.createBiquadFilter();
+    filt.type = 'bandpass'; filt.frequency.value = 1200; filt.Q.value = 0.5;
+    const ng = this.ctx.createGain(); ng.gain.value = 0.04;
+    src.connect(filt); filt.connect(ng); ng.connect(g);
+    src.start();
+    this._levelAmbientNodes.push(src);
+    // Occasional pipe bang
+    this._schedulePipeBang();
+  }
+
+  _schedulePipeBang() {
+    if (this._levelProfile !== 'pipes' || !this.initialized) return;
+    const delay = 2000 + Math.random() * 8000;
+    setTimeout(() => {
+      this.playWallBang();
+      this._schedulePipeBang();
+    }, delay);
+  }
+
+  _ambientElectrical() {
+    const g = this._makeLevelGain(0.3);
+    // Electrical crackle
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sawtooth'; osc.frequency.value = 80;
+    const og = this.ctx.createGain(); og.gain.value = 0.02;
+    const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 300;
+    osc.connect(f); f.connect(og); og.connect(g);
+    osc.start();
+    this._levelAmbientNodes.push(osc);
+  }
+
+  _ambientPool() {
+    // Near total silence — water lapping only
+    const g = this._makeLevelGain(0.1);
+    this._scheduleWaterDrip();
+  }
+
+  _scheduleWaterDrip() {
+    if (this._levelProfile !== 'poolrooms' || !this.initialized) return;
+    const delay = 1500 + Math.random() * 5000;
+    setTimeout(() => {
+      this._playDrip();
+      this._scheduleWaterDrip();
+    }, delay);
+  }
+
+  _ambientParty() {
+    if (!this.initialized) return;
+    const g = this._makeLevelGain(0.25);
+    // Tinny upbeat party loop (simple synthesized melody)
+    const notes = [523, 659, 784, 659, 523, 587, 698, 784];
+    let noteIdx = 0;
+    const playNote = () => {
+      if (this._levelProfile !== 'party' || !this.initialized) return;
+      const t = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const ng = this.ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = notes[noteIdx % notes.length];
+      ng.gain.setValueAtTime(0.04, t);
+      ng.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      osc.connect(ng); ng.connect(g);
+      osc.start(t); osc.stop(t + 0.2);
+      noteIdx++;
+      setTimeout(playNote, 220 + Math.random() * 30);
+    };
+    playNote();
+  }
+
+  // Party alert sound — music cut + roar
+  playPartyAlert() {
+    if (!this.initialized) return;
+    // Silence the level ambient briefly then ROAR
+    if (this._levelAmbientGain) {
+      const t = this.ctx.currentTime;
+      this._levelAmbientGain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+      setTimeout(() => {
+        if (this._levelAmbientGain) {
+          this._levelAmbientGain.gain.linearRampToValueAtTime(0.25, this.ctx.currentTime + 1);
+        }
+      }, 800);
+    }
+    // Collective roar
+    setTimeout(() => {
+      for (let i = 0; i < 3; i++) {
+        setTimeout(() => this.playEntityScream(2 + i * 0.5), i * 80);
+      }
+    }, 500);
   }
 
   _startCalmMusic() {
@@ -557,6 +779,16 @@ export class AudioSystem {
   // ── AMBIENT RANDOM SOUNDS ─────────────────────────────────────────────────
   update(dt, player, entities, events) {
     if (!this.initialized) return;
+
+    // Heartbeat
+    if (this._heartbeatActive) {
+      this._heartbeatTimer += dt;
+      const interval = 60 / this._heartbeatBPM;
+      if (this._heartbeatTimer >= interval) {
+        this._heartbeatTimer = 0;
+        this._playHeartbeat();
+      }
+    }
 
     this._distantSoundTimer += dt;
     if (this._distantSoundTimer > this._distantSoundInterval) {

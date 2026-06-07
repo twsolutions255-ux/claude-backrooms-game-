@@ -1,260 +1,360 @@
-// Procedural level generation with handcrafted room templates
+// Procedural level generation with per-level themes
 import { GameMap, T, MAP_W, MAP_H } from './map.js';
 
 function rng(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
-// ── ROOM TYPES ───────────────────────────────────────────────────────────────
-const ROOM_TYPES = [
-  'standard', 'standard', 'standard', 'standard', // common
-  'long_corridor', 'long_corridor',                // common
-  'office', 'office',                              // common
-  'junction', 'junction',                          // common
-  'pool_room',                                     // uncommon
-  'parking_garage',                                // uncommon
-  'boiler_room',                                   // uncommon
-  'maintenance',                                   // uncommon
-  'flooded',                                       // rare
-  'narrow_maze',                                   // rare
-  'void_room',                                     // rare
-];
-
-// Template: each room has a place function
-const roomTemplates = {
-  standard(map, x, y, w, h) {
-    const wt = pick([T.WALL_PAPER, T.WALL_PAPER, T.WALL_DARK, T.WALL_WET]);
-    map.carveRoom(x, y, w, h, wt, 0, 1);
-    // Add lights to ceiling
-    const lx = rng(x + 2, x + w - 3), ly = rng(y + 2, y + h - 3);
-    map.setCeiling(lx, ly, 1);
-    if (w > 8) map.setCeiling(lx + rng(-3, 3), ly + rng(-2, 2), Math.random() < 0.3 ? 2 : 1);
-    // Occasional broken wall section
-    if (Math.random() < 0.25) {
-      const bx = rng(x + 1, x + w - 2), by = rng(y + 1, y + h - 2);
-      map.set(bx, y, T.WALL_DARK);
-      map.set(bx, y + h - 1, T.WALL_DARK);
-    }
-    return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+// ── LEVEL THEMES ─────────────────────────────────────────────────────────────
+const LEVEL_THEMES = {
+  lobby: {
+    name: 'The Lobby — Level 0',
+    wallTypes: [T.WALL_PAPER, T.WALL_PAPER, T.WALL_PAPER, T.WALL_DARK],
+    floorType: T.FLOOR_CARPET,
+    ambientBase: 0.55,     // BRIGHT — the horror is well-lit sameness
+    fogDensity: 0.04,
+    fogColorR: 0.06, fogColorG: 0.05, fogColorB: 0.01,
+    entityTypes: [],       // no entities — monotony IS the horror
+    roomPool: ['lobby_standard', 'lobby_standard', 'lobby_corridor', 'lobby_corridor', 'lobby_void'],
+    floorTexName: 'carpet',
+    ambientProfile: 'lobby',
   },
-
-  long_corridor(map, x, y, w, h) {
-    // Force narrow long shape
-    const isHoriz = w > h;
-    map.carveRoom(x, y, w, h, T.WALL_PAPER, 0, 0);
-    // Place lights at intervals
-    const step = rng(4, 8);
-    if (isHoriz) {
-      for (let lx = x + step; lx < x + w - 1; lx += step) {
-        const broken = Math.random() < 0.3;
-        map.setCeiling(lx, y + Math.floor(h/2), broken ? 2 : 1);
-      }
-    } else {
-      for (let ly = y + step; ly < y + h - 1; ly += step) {
-        const broken = Math.random() < 0.3;
-        map.setCeiling(x + Math.floor(w/2), ly, broken ? 2 : 1);
-      }
-    }
-    return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+  warehouse: {
+    name: 'Habitable Zone — Level 1',
+    wallTypes: [T.WALL_CONCRETE, T.WALL_CONCRETE, T.WALL_METAL, T.WALL_DARK],
+    floorType: T.FLOOR_CONCRETE,
+    ambientBase: 0.10,
+    fogDensity: 0.09,
+    fogColorR: 0.02, fogColorG: 0.03, fogColorB: 0.04,
+    entityTypes: ['hound', 'faceling', 'faceling'],
+    roomPool: ['warehouse_bay', 'warehouse_bay', 'warehouse_corridor', 'warehouse_dark'],
+    floorTexName: 'concrete',
+    ambientProfile: 'warehouse',
   },
-
-  office(map, x, y, w, h) {
-    map.carveRoom(x, y, w, h, T.WALL_PAPER, 0, 1);
-    // Dividing wall with a gap
-    const divX = x + Math.floor(w * 0.4) + rng(-1, 1);
-    for (let dy = y + 1; dy < y + h - 1; dy++) {
-      if (dy !== y + Math.floor(h / 2)) {
-        map.set(divX, dy, T.WALL_DARK);
-      }
-    }
-    // Lockers along one wall
-    if (h > 6) {
-      for (let i = x + 2; i < x + w - 2; i += 2) {
-        if (Math.random() < 0.5) map.set(i, y + 1, T.LOCKER_CLOSED);
-      }
-    }
-    map.setCeiling(x + 2, y + 2, 1);
-    map.setCeiling(x + w - 3, y + 2, 1);
-    return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+  pipes: {
+    name: 'Pipe Dreams — Level 2',
+    wallTypes: [T.WALL_PIPE],
+    floorType: T.FLOOR_CONCRETE,
+    ambientBase: 0.04,     // near darkness
+    fogDensity: 0.14,
+    fogColorR: 0.03, fogColorG: 0.01, fogColorB: 0.01,
+    entityTypes: ['hound', 'smiler', 'smiler'],
+    roomPool: ['pipe_corridor', 'pipe_junction', 'pipe_wide'],
+    floorTexName: 'concrete',
+    ambientProfile: 'pipes',
   },
-
-  junction(map, x, y, w, h) {
-    // Cross-shaped room
-    const mx = x + Math.floor(w/2), my = y + Math.floor(h/2);
-    // Main room center
-    map.carveRoom(mx - 3, my - 3, 6, 6, T.WALL_PAPER, 0, 1);
-    map.setCeiling(mx, my, 1);
-    // Arms
-    map.carveRoom(x, my - 2, mx - x, 4, T.WALL_PAPER, 0, 0);
-    map.carveRoom(mx + 3, my - 2, x + w - mx - 3, 4, T.WALL_PAPER, 0, 0);
-    map.carveRoom(mx - 2, y, 4, my - y, T.WALL_PAPER, 0, 0);
-    map.carveRoom(mx - 2, my + 3, 4, y + h - my - 3, T.WALL_PAPER, 0, 0);
-    return { cx: mx, cy: my };
+  electrical: {
+    name: 'Electrical Station — Level 3',
+    wallTypes: [T.WALL_BRICK_RED, T.WALL_BRICK_RED, T.WALL_BRICK],
+    floorType: T.FLOOR_CONCRETE,
+    ambientBase: 0.07,
+    fogDensity: 0.10,
+    fogColorR: 0.05, fogColorG: 0.03, fogColorB: 0.01,
+    entityTypes: ['hound', 'deathmoth', 'deathmoth'],
+    roomPool: ['electrical_room', 'electrical_corridor', 'electrical_junction'],
+    floorTexName: 'concrete',
+    ambientProfile: 'electrical',
   },
-
-  pool_room(map, x, y, w, h) {
-    map.carveRoom(x, y, w, h, T.WALL_TILE, 1, 1);
-    // Central pool area
-    const px = x + 3, py = y + 3, pw = w - 6, ph = h - 6;
-    for (let cy = py; cy < py + ph; cy++) {
-      for (let cx = px; cx < px + pw; cx++) {
-        map.setFloor(cx, cy, 2); // wet floor
-        map.set(cx, cy, T.EMPTY);
-      }
-    }
-    // Bright lights (pool rooms are well lit)
-    map.setCeiling(x + 2, y + 2, 1);
-    map.setCeiling(x + w - 3, y + 2, 1);
-    map.setCeiling(x + 2, y + h - 3, 1);
-    map.setCeiling(x + w - 3, y + h - 3, 1);
-    map.addLight(x + w/2, y + h/2, 12, 0.9, 0.9, 0.95, 1.0);
-    return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+  poolrooms: {
+    name: 'The Poolrooms — Sublimity',
+    wallTypes: [T.WALL_TILE],
+    floorType: T.FLOOR_POOL,
+    ambientBase: 0.88,     // VERY BRIGHT — soft indoor daylight
+    fogDensity: 0.012,
+    fogColorR: 0.04, fogColorG: 0.06, fogColorB: 0.09,
+    entityTypes: [],       // healing zone — completely safe
+    roomPool: ['pool_chamber', 'pool_chamber', 'pool_corridor', 'pool_dark_room'],
+    floorTexName: 'poolFloor',
+    ambientProfile: 'poolrooms',
+    isHealing: true,
   },
-
-  parking_garage(map, x, y, w, h) {
-    map.carveRoom(x, y, w, h, T.WALL_CONCRETE, 2, 0);
-    // Pillars
-    for (let py = y + 3; py < y + h - 2; py += 4) {
-      for (let px = x + 3; px < x + w - 2; px += 5) {
-        map.set(px, py, T.WALL_CONCRETE);
-      }
-    }
-    // Emergency red lights
-    map.setCeiling(x + 2, y + 2, 1);
-    map.addLight(x + w/2, y + h/2, 10, 0.5, 0.8, 0.1, 0.1); // red tint
-    // Low, dark
-    return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
-  },
-
-  boiler_room(map, x, y, w, h) {
-    map.carveRoom(x, y, w, h, T.WALL_METAL, 2, 0);
-    // Pipes / obstacles as wall blocks
-    if (w > 8 && h > 8) {
-      map.set(x + 3, y + 3, T.WALL_METAL);
-      map.set(x + 3, y + 4, T.WALL_METAL);
-      map.set(x + w - 4, y + 3, T.WALL_METAL);
-      map.set(x + w - 4, y + 4, T.WALL_METAL);
-      map.set(x + 3, y + h - 4, T.WALL_METAL);
-      map.set(x + 3, y + h - 5, T.WALL_METAL);
-    }
-    // Dim flickering light
-    map.setCeiling(x + Math.floor(w/2), y + Math.floor(h/2), 1);
-    map.addLight(x + w/2, y + h/2, 8, 0.7, 1.0, 0.8, 0.5, 3.0); // flickering orange-warm
-    return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
-  },
-
-  maintenance(map, x, y, w, h) {
-    map.carveRoom(x, y, w, h, T.WALL_BRICK, 2, 0);
-    // Vents in walls
-    if (h > 5) {
-      map.set(x, y + Math.floor(h/2), T.VENT);
-      map.set(x + w - 1, y + Math.floor(h/2), T.VENT);
-    }
-    // Grim dark
-    for (let cy = y + 1; cy < y + h - 1; cy++) {
-      for (let cx = x + 1; cx < x + w - 1; cx++) {
-        map.setFloor(cx, cy, 2);
-      }
-    }
-    map.setCeiling(x + 2, y + 2, 2); // broken ceiling
-    map.addLight(x + w/2, y + h/2, 6, 0.5, 1.0, 0.9, 0.7, 2.0);
-    return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
-  },
-
-  flooded(map, x, y, w, h) {
-    map.carveRoom(x, y, w, h, T.WALL_WET, 0, 0);
-    // All floor is wet
-    for (let cy = y + 1; cy < y + h - 1; cy++) {
-      for (let cx = x + 1; cx < x + w - 1; cx++) {
-        map.setFloor(cx, cy, 2);
-      }
-    }
-    // Water sound marker
-    map.specialTiles.set(`${x+Math.floor(w/2)},${y+Math.floor(h/2)}`, { type: 'flooded' });
-    map.setCeiling(x + 2, y + 2, 1);
-    return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
-  },
-
-  narrow_maze(map, x, y, w, h) {
-    // Fill then carve winding path
-    map.carveRoom(x, y, w, h, T.WALL_DARK, 0, 0);
-    // Re-add some walls for maze feel
-    for (let cy = y + 2; cy < y + h - 2; cy += 2) {
-      for (let cx = x + 2; cx < x + w - 2; cx++) {
-        if (cx % 3 !== 0) map.set(cx, cy, T.WALL_DARK);
-      }
-    }
-    return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
-  },
-
-  void_room(map, x, y, w, h) {
-    // Large empty room — pure liminal horror
-    map.carveRoom(x, y, w, h, T.WALL_PAPER, 0, 1);
-    // Sparse lights — feel of vast emptiness
-    const numLights = rng(1, 3);
-    for (let i = 0; i < numLights; i++) {
-      const lx = rng(x + 3, x + w - 3), ly = rng(y + 3, y + h - 3);
-      map.setCeiling(lx, ly, 1);
-    }
-    // Some broken ceiling tiles
-    for (let i = 0; i < 4; i++) {
-      map.setCeiling(rng(x + 1, x + w - 2), rng(y + 1, y + h - 2), 2);
-    }
-    map.specialTiles.set(`${x+Math.floor(w/2)},${y+Math.floor(h/2)}`, { type: 'liminal' });
-    return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+  party: {
+    name: 'Level Fun — The Party',
+    wallTypes: [T.WALL_PARTY],
+    floorType: T.FLOOR_PARTY,
+    ambientBase: 0.72,     // bright and cheerful — horror is the silence after the music cuts
+    fogDensity: 0.018,
+    fogColorR: 0.06, fogColorG: 0.06, fogColorB: 0.08,
+    entityTypes: ['partygoer', 'partygoer', 'partygoer'],
+    roomPool: ['party_main', 'party_main', 'party_corridor'],
+    floorTexName: 'partyFloor',
+    ambientProfile: 'party',
   },
 };
 
+function getTheme(level) {
+  if (level <= 2) return LEVEL_THEMES.lobby;
+  if (level <= 4) return LEVEL_THEMES.warehouse;
+  if (level === 5) return LEVEL_THEMES.pipes;
+  if (level <= 7) return LEVEL_THEMES.electrical;
+  if (level === 8) return LEVEL_THEMES.poolrooms;
+  return LEVEL_THEMES.party;
+}
+
+// ── LOBBY ROOM TEMPLATES ─────────────────────────────────────────────────────
+function lobby_standard(map, x, y, w, h, theme) {
+  map.carveRoom(x, y, w, h, pick(theme.wallTypes), theme.floorType, theme.ceilType ?? 1);
+  // Evenly spaced ceiling lights — some broken for variety
+  for (let lx = x + 3; lx < x + w - 2; lx += 5) {
+    for (let ly = y + 3; ly < y + h - 2; ly += 5) {
+      map.setCeiling(lx, ly, Math.random() < 0.15 ? 2 : 1);
+    }
+  }
+  if (h > 6 && Math.random() < 0.3) map.set(rng(x+1, x+w-2), y+1, T.LOCKER_CLOSED);
+  return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+}
+
+function lobby_corridor(map, x, y, w, h, theme) {
+  map.carveRoom(x, y, w, h, T.WALL_PAPER, theme.floorType, 0);
+  const step = rng(5, 8);
+  const isHoriz = w > h;
+  if (isHoriz) {
+    for (let lx = x + step; lx < x + w - 1; lx += step)
+      map.setCeiling(lx, y + Math.floor(h/2), Math.random() < 0.2 ? 2 : 1);
+  } else {
+    for (let ly = y + step; ly < y + h - 1; ly += step)
+      map.setCeiling(x + Math.floor(w/2), ly, Math.random() < 0.2 ? 2 : 1);
+  }
+  return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+}
+
+function lobby_void(map, x, y, w, h, theme) {
+  map.carveRoom(x, y, w, h, T.WALL_PAPER, theme.floorType, 1);
+  for (let i = 0; i < rng(2, 4); i++)
+    map.setCeiling(rng(x+2, x+w-3), rng(y+2, y+h-3), Math.random() < 0.3 ? 2 : 1);
+  map.specialTiles.set(`${x+Math.floor(w/2)},${y+Math.floor(h/2)}`, { type: 'liminal' });
+  return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+}
+
+// ── WAREHOUSE ROOM TEMPLATES ─────────────────────────────────────────────────
+function warehouse_bay(map, x, y, w, h, theme) {
+  map.carveRoom(x, y, w, h, pick(theme.wallTypes), theme.floorType, 0);
+  // Concrete pillars in grid pattern
+  for (let py = y + 3; py < y + h - 2; py += 4)
+    for (let px = x + 3; px < x + w - 2; px += 5)
+      map.set(px, py, T.WALL_CONCRETE);
+  map.addLight(x + w/2, y + h/2, 10, 0.5, 1.0, 0.88, 0.55, 2.5);
+  map.setCeiling(x + 2, y + 2, Math.random() < 0.5 ? 2 : 1);
+  return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+}
+
+function warehouse_corridor(map, x, y, w, h, theme) {
+  map.carveRoom(x, y, w, h, T.WALL_CONCRETE, theme.floorType, 0);
+  map.addLight(x + w/2, y + h/2, 7, 0.4, 1.0, 0.88, 0.55, 3.0);
+  return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+}
+
+function warehouse_dark(map, x, y, w, h, theme) {
+  map.carveRoom(x, y, w, h, T.WALL_METAL, theme.floorType, 2);
+  // No ceiling lights — just darkness and fear
+  return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+}
+
+// ── PIPE ROOM TEMPLATES ──────────────────────────────────────────────────────
+function pipe_corridor(map, x, y, w, h, theme) {
+  map.carveRoom(x, y, w, h, T.WALL_PIPE, theme.floorType, 2);
+  const step = rng(8, 14);
+  const isHoriz = w > h;
+  if (isHoriz) {
+    for (let lx = x + step; lx < x + w - 1; lx += step)
+      map.addLight(lx, y + Math.floor(h/2), 3, 0.3, 0.7, 0.1, 0.1); // emergency red
+  } else {
+    for (let ly = y + step; ly < y + h - 1; ly += step)
+      map.addLight(x + Math.floor(w/2), ly, 3, 0.3, 0.7, 0.1, 0.1);
+  }
+  return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+}
+
+function pipe_junction(map, x, y, w, h, theme) {
+  const cw = Math.max(w, 6), ch = Math.max(h, 6);
+  map.carveRoom(x, y, cw, ch, T.WALL_PIPE, theme.floorType, 2);
+  map.addLight(x + cw/2, y + ch/2, 4, 0.3, 0.7, 0.1, 0.1);
+  return { cx: x + Math.floor(cw/2), cy: y + Math.floor(ch/2) };
+}
+
+function pipe_wide(map, x, y, w, h, theme) {
+  map.carveRoom(x, y, w, h, T.WALL_PIPE, theme.floorType, 2);
+  for (let dy2 = y + 2; dy2 < y + h - 2; dy2 += 4) {
+    if (Math.random() < 0.35) map.set(x + 1, dy2, T.WALL_PIPE);
+    if (Math.random() < 0.35) map.set(x + w - 2, dy2, T.WALL_PIPE);
+  }
+  map.addLight(x + w/2, y + h/2, 4, 0.25, 0.7, 0.1, 0.1);
+  return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+}
+
+// ── ELECTRICAL ROOM TEMPLATES ────────────────────────────────────────────────
+function electrical_room(map, x, y, w, h, theme) {
+  map.carveRoom(x, y, w, h, pick(theme.wallTypes), theme.floorType, 0);
+  map.addLight(x + w/2, y + h/2, 9, 0.6, 1.0, 0.65, 0.18, 1.5);
+  if (w > 8 && h > 7) {
+    map.set(x + 2, y + 2, T.WALL_METAL);
+    map.set(x + 3, y + 2, T.WALL_METAL);
+    map.set(x + w - 3, y + h - 3, T.WALL_METAL);
+    map.set(x + w - 4, y + h - 3, T.WALL_METAL);
+  }
+  return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+}
+
+function electrical_corridor(map, x, y, w, h, theme) {
+  map.carveRoom(x, y, w, h, T.WALL_BRICK_RED, theme.floorType, 0);
+  map.addLight(x + w/2, y + h/2, 6, 0.45, 1.0, 0.62, 0.15, 2.0);
+  return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+}
+
+function electrical_junction(map, x, y, w, h, theme) {
+  const mx = x + Math.floor(w/2), my = y + Math.floor(h/2);
+  map.carveRoom(mx - 3, my - 3, 6, 6, T.WALL_BRICK_RED, theme.floorType, 0);
+  if (mx - x > 3) map.carveRoom(x, my - 1, mx - x - 3, 2, T.WALL_BRICK_RED, theme.floorType, 0);
+  if (x + w - mx - 3 > 0) map.carveRoom(mx + 3, my - 1, x + w - mx - 3, 2, T.WALL_BRICK_RED, theme.floorType, 0);
+  if (my - y > 3) map.carveRoom(mx - 1, y, 2, my - y - 3, T.WALL_BRICK_RED, theme.floorType, 0);
+  if (y + h - my - 3 > 0) map.carveRoom(mx - 1, my + 3, 2, y + h - my - 3, T.WALL_BRICK_RED, theme.floorType, 0);
+  map.addLight(mx, my, 10, 0.65, 1.0, 0.58, 0.12, 2.5);
+  return { cx: mx, cy: my };
+}
+
+// ── POOLROOM TEMPLATES ───────────────────────────────────────────────────────
+function pool_chamber(map, x, y, w, h, theme) {
+  map.carveRoom(x, y, w, h, T.WALL_TILE, T.FLOOR_POOL, 1);
+  for (let cy2 = y + 1; cy2 < y + h - 1; cy2++)
+    for (let cx2 = x + 1; cx2 < x + w - 1; cx2++)
+      map.setFloor(cx2, cy2, T.FLOOR_POOL);
+  map.addLight(x + w/2, y + h/2, 18, 1.0, 1.0, 1.0, 1.0);
+  return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+}
+
+function pool_corridor(map, x, y, w, h, theme) {
+  map.carveRoom(x, y, w, h, T.WALL_TILE, T.FLOOR_POOL, 1);
+  for (let cy2 = y + 1; cy2 < y + h - 1; cy2++)
+    for (let cx2 = x + 1; cx2 < x + w - 1; cx2++)
+      map.setFloor(cx2, cy2, T.FLOOR_POOL);
+  map.addLight(x + w/2, y + h/2, 12, 0.9, 1.0, 1.0, 1.0);
+  return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+}
+
+function pool_dark_room(map, x, y, w, h, theme) {
+  // Dark-tiled sub-room — looks similar but deadly
+  map.carveRoom(x, y, w, h, T.WALL_TILE, T.FLOOR_DARK, 0);
+  for (let cy2 = y + 1; cy2 < y + h - 1; cy2++) {
+    for (let cx2 = x + 1; cx2 < x + w - 1; cx2++) {
+      map.setFloor(cx2, cy2, T.FLOOR_DARK);
+      map.specialTiles.set(`${cx2},${cy2}`, { type: 'dark_tile_hazard' });
+    }
+  }
+  return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+}
+
+// ── PARTY ROOM TEMPLATES ──────────────────────────────────────────────────────
+function party_main(map, x, y, w, h, theme) {
+  map.carveRoom(x, y, w, h, T.WALL_PARTY, T.FLOOR_PARTY, 1);
+  map.addLight(x + w/2, y + h/2, 16, 1.0, 1.0, 1.0, 1.0);
+  // Lockers as hiding spots (tables)
+  if (h > 6 && Math.random() < 0.7) map.set(rng(x+2, x+w-3), y+1, T.LOCKER_CLOSED);
+  if (w > 10 && Math.random() < 0.5) map.set(rng(x+2, x+w-3), y+h-2, T.LOCKER_CLOSED);
+  map.specialTiles.set(`${x+Math.floor(w/2)},${y+Math.floor(h/2)}`, { type: 'party_room' });
+  return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+}
+
+function party_corridor(map, x, y, w, h, theme) {
+  map.carveRoom(x, y, w, h, T.WALL_PARTY, T.FLOOR_PARTY, 1);
+  map.addLight(x + w/2, y + h/2, 12, 0.9, 1.0, 1.0, 1.0);
+  return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+}
+
+// ── ROOM TEMPLATE REGISTRY ───────────────────────────────────────────────────
+const ROOM_TEMPLATES = {
+  lobby_standard, lobby_corridor, lobby_void,
+  warehouse_bay, warehouse_corridor, warehouse_dark,
+  pipe_corridor, pipe_junction, pipe_wide,
+  electrical_room, electrical_corridor, electrical_junction,
+  pool_chamber, pool_corridor, pool_dark_room,
+  party_main, party_corridor,
+};
+
 // ── SPECIAL ROOMS ────────────────────────────────────────────────────────────
-function placeSaveRoom(map, x, y) {
+function placeSaveRoom(map, x, y, theme) {
   const w = 7, h = 7;
   map.carveRoom(x, y, w, h, T.WALL_SAVE, 0, 1);
-  // Warm lights all around
   map.setCeiling(x + 2, y + 2, 1);
   map.setCeiling(x + w - 3, y + 2, 1);
   map.setCeiling(x + 2, y + h - 3, 1);
   map.setCeiling(x + w - 3, y + h - 3, 1);
   map.addLight(x + w/2, y + h/2, 8, 1.0, 1.0, 0.85, 0.6);
-  // Save station marker
   map.specialTiles.set(`${x+Math.floor(w/2)},${y+Math.floor(h/2)}`, { type: 'save_room' });
   return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
 }
 
-function placeLootRoom(map, x, y) {
-  const w = rng(5, 8), h = rng(5, 8);
-  map.carveRoom(x, y, w, h, T.WALL_DARK, 0, 0);
-  // Hidden/dead-end feel — no ceiling light, dim
-  map.specialTiles.set(`${x+Math.floor(w/2)},${y+Math.floor(h/2)}`, { type: 'loot_room' });
-  return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2), w, h };
+// ── HALLWAY CARVER (themed) ──────────────────────────────────────────────────
+function carveThemedHallway(map, x1, y1, x2, y2, wallType, floorType) {
+  const goHorizFirst = Math.random() < 0.5;
+  if (goHorizFirst) {
+    for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) {
+      if (x <= 0 || x >= MAP_W - 1) continue;
+      map.set(x, y1, T.EMPTY);
+      if (y1 - 1 > 0) map.set(x, y1 - 1, T.EMPTY);
+      map.setFloor(x, y1, floorType);
+      if (y1 - 1 > 0) map.setFloor(x, y1 - 1, floorType);
+    }
+    for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) {
+      if (y <= 0 || y >= MAP_H - 1) continue;
+      map.set(x2, y, T.EMPTY);
+      if (x2 + 1 < MAP_W - 1) map.set(x2 + 1, y, T.EMPTY);
+      map.setFloor(x2, y, floorType);
+      if (x2 + 1 < MAP_W - 1) map.setFloor(x2 + 1, y, floorType);
+    }
+  } else {
+    for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) {
+      if (y <= 0 || y >= MAP_H - 1) continue;
+      map.set(x1, y, T.EMPTY);
+      if (x1 + 1 < MAP_W - 1) map.set(x1 + 1, y, T.EMPTY);
+      map.setFloor(x1, y, floorType);
+      if (x1 + 1 < MAP_W - 1) map.setFloor(x1 + 1, y, floorType);
+    }
+    for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) {
+      if (x <= 0 || x >= MAP_W - 1) continue;
+      map.set(x, y2, T.EMPTY);
+      if (y2 - 1 > 0) map.set(x, y2 - 1, T.EMPTY);
+      map.setFloor(x, y2, floorType);
+      if (y2 - 1 > 0) map.setFloor(x, y2 - 1, floorType);
+    }
+  }
 }
 
-function placeEventRoom(map, x, y) {
-  const w = rng(8, 14), h = rng(8, 12);
-  const type = pick(['event_dark', 'event_scream', 'event_chase_trigger']);
-  map.carveRoom(x, y, w, h, T.WALL_DARK, 0, 0);
-  map.specialTiles.set(`${x+Math.floor(w/2)},${y+Math.floor(h/2)}`, { type });
-  return { cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
-}
-
-// ── MAIN GENERATOR ───────────────────────────────────────────────────────────
+// ── MAIN LEVEL GENERATOR ─────────────────────────────────────────────────────
 export function generateLevel(level = 1) {
   const map = new GameMap();
+  const theme = getTheme(level);
+
+  // Apply theme
+  map.ambientBase = theme.ambientBase;
+  const themeKey = Object.keys(LEVEL_THEMES).find(k => LEVEL_THEMES[k] === theme) || 'default';
+  map.theme = themeKey;
+  map.themeConfig = theme;
+
+  // Fill entire map with primary wall type
+  map.tiles.fill(theme.wallTypes[0]);
+
+  // Room size ranges per theme
+  let minRW, maxRW, minRH, maxRH;
+  if (themeKey === 'lobby') {
+    minRW = 8; maxRW = 14; minRH = 7; maxRH = 12;
+  } else if (themeKey === 'pipes') {
+    minRW = 4; maxRW = 9; minRH = 4; maxRH = 7;
+  } else if (themeKey === 'poolrooms') {
+    minRW = 10; maxRW = 18; minRH = 9; maxRH = 16;
+  } else {
+    minRW = 6; maxRW = Math.min(15, 8 + level); minRH = 5; maxRH = Math.min(13, 7 + level);
+  }
+
   const rooms = [];
-  const roomCenters = [];
-
-  // Room size ranges scale with level
-  const minRW = 6, maxRW = Math.min(16, 8 + level);
-  const minRH = 5, maxRH = Math.min(14, 7 + level);
-
-  // Attempt to place N rooms
-  const targetRooms = 10 + level * 3;
+  const targetRooms = 12 + level * 2;
   let attempts = 0;
-  while (rooms.length < targetRooms && attempts++ < 500) {
+
+  while (rooms.length < targetRooms && attempts++ < 700) {
     const w = rng(minRW, maxRW);
     const h = rng(minRH, maxRH);
     const x = rng(2, MAP_W - w - 2);
     const y = rng(2, MAP_H - h - 2);
 
-    // Check overlap with existing rooms (with margin)
+    // Overlap check with margin
     let overlap = false;
     for (const r of rooms) {
       if (x < r.x + r.w + 2 && x + w > r.x - 2 && y < r.y + r.h + 2 && y + h > r.y - 2) {
@@ -263,62 +363,50 @@ export function generateLevel(level = 1) {
     }
     if (overlap) continue;
 
-    const typeRoll = Math.random();
-    let type;
-    if (rooms.length === 0) type = 'standard'; // first room = spawn
-    else if (typeRoll < 0.05 && level >= 2) type = 'pool_room';
-    else if (typeRoll < 0.1) type = 'boiler_room';
-    else if (typeRoll < 0.15) type = 'maintenance';
-    else if (typeRoll < 0.2) type = 'parking_garage';
-    else if (typeRoll < 0.22 && level >= 1) type = 'flooded';
-    else if (typeRoll < 0.25) type = 'junction';
-    else if (typeRoll < 0.30) type = 'office';
-    else if (typeRoll < 0.35) type = 'long_corridor';
-    else if (typeRoll < 0.37 && level >= 2) type = 'void_room';
-    else type = 'standard';
+    const roomType = rooms.length === 0 ? theme.roomPool[0] : pick(theme.roomPool);
+    const fn = ROOM_TEMPLATES[roomType];
+    if (!fn) continue;
 
-    const fn = roomTemplates[type] || roomTemplates.standard;
-    const center = fn(map, x, y, w, h);
-    rooms.push({ x, y, w, h, type, cx: center.cx, cy: center.cy });
-    roomCenters.push({ x: center.cx, y: center.cy });
-    map.roomList.push({ x, y, w, h, type });
+    const center = fn(map, x, y, w, h, theme);
+    rooms.push({ x, y, w, h, type: roomType, cx: center.cx, cy: center.cy });
+    map.roomList.push({ x, y, w, h, type: roomType });
   }
 
-  // Connect rooms with corridors
+  // Connect rooms with themed hallways
+  const wallType = theme.wallTypes[0];
   for (let i = 1; i < rooms.length; i++) {
     const a = rooms[i - 1], b = rooms[i];
-    map.carveHallway(a.cx, a.cy, b.cx, b.cy);
-    // Add doors occasionally
-    if (Math.random() < 0.4) {
-      const mx = Math.round((a.cx + b.cx) / 2);
-      const my = Math.round((a.cy + b.cy) / 2);
-      // Try to place a door in the corridor midpoint wall
-      if (!map.isSolid(mx, my)) {
-        // Find a nearby wall to door-ify
-        for (const [dx, dy] of [[0,1],[0,-1],[1,0],[-1,0]]) {
-          if (map.get(mx + dx, my + dy) >= T.WALL_PAPER && map.get(mx + dx, my + dy) <= T.WALL_WOOD) {
-            map.set(mx + dx, my + dy, T.DOOR_CLOSED);
+    carveThemedHallway(map, a.cx, a.cy, b.cx, b.cy, wallType, theme.floorType);
+
+    // Doors occasionally
+    if (Math.random() < 0.35) {
+      const mx2 = Math.round((a.cx + b.cx) / 2);
+      const my2 = Math.round((a.cy + b.cy) / 2);
+      if (!map.isSolid(mx2, my2)) {
+        for (const [ddx, ddy] of [[0,1],[0,-1],[1,0],[-1,0]]) {
+          const tt = map.get(mx2 + ddx, my2 + ddy);
+          if (tt >= 1 && tt <= 18 && tt !== T.DOOR_CLOSED) {
+            map.set(mx2 + ddx, my2 + ddy, T.DOOR_CLOSED);
             break;
           }
         }
       }
     }
-    // Add some loop connections (some rooms connect to non-adjacent rooms)
-    if (i > 2 && Math.random() < 0.3) {
+    // Loop connections
+    if (i > 2 && Math.random() < 0.25) {
       const j = rng(Math.max(0, i - 4), i - 2);
-      map.carveHallway(rooms[i].cx, rooms[i].cy, rooms[j].cx, rooms[j].cy);
+      carveThemedHallway(map, rooms[i].cx, rooms[i].cy, rooms[j].cx, rooms[j].cy, wallType, theme.floorType);
     }
   }
 
-  // Spawn room = first room
+  // Spawn at first room
   map.spawnX = rooms[0].cx + 0.5;
   map.spawnY = rooms[0].cy + 0.5;
 
-  // Place save room(s)
+  // Save rooms
   const saveCount = Math.max(1, Math.floor(rooms.length / 6));
   for (let i = 0; i < saveCount; i++) {
-    const attempts2 = 100;
-    for (let a2 = 0; a2 < attempts2; a2++) {
+    for (let a2 = 0; a2 < 100; a2++) {
       const sx = rng(3, MAP_W - 12), sy = rng(3, MAP_H - 12);
       let ok = true;
       for (const r of rooms) {
@@ -327,72 +415,75 @@ export function generateLevel(level = 1) {
         }
       }
       if (ok) {
-        const saveCenter = placeSaveRoom(map, sx, sy);
-        // Connect to nearest room
+        const sc = placeSaveRoom(map, sx, sy, theme);
         let near = rooms[0], nearD = Infinity;
         for (const r of rooms) {
-          const d = Math.abs(r.cx - saveCenter.cx) + Math.abs(r.cy - saveCenter.cy);
+          const d = Math.abs(r.cx - sc.cx) + Math.abs(r.cy - sc.cy);
           if (d < nearD) { nearD = d; near = r; }
         }
-        map.carveHallway(saveCenter.cx, saveCenter.cy, near.cx, near.cy);
+        carveThemedHallway(map, sc.cx, sc.cy, near.cx, near.cy, wallType, theme.floorType);
         break;
       }
     }
   }
 
-  // Place loot rooms (dead-ends)
+  // Loot rooms (dead ends)
   const lootCount = rng(2, 4);
   for (let i = 0; i < lootCount; i++) {
-    // Find edge room with only one connection
     const r = rooms[rooms.length - 1 - i];
-    if (r) {
-      const lx = r.cx + pick([-1, 1]) * rng(4, 8);
-      const ly = r.cy + pick([-1, 1]) * rng(4, 8);
-      if (lx > 3 && lx < MAP_W - 12 && ly > 3 && ly < MAP_H - 12) {
-        const lc = placeLootRoom(map, lx, ly);
-        map.carveHallway(lc.cx, lc.cy, r.cx, r.cy);
-        // Place items in loot room
-        const numItems = rng(2, 5);
-        for (let j = 0; j < numItems; j++) {
-          map.items.push({
-            x: lx + rng(1, lc.w ? lc.w - 2 : 4),
-            y: ly + rng(1, lc.h ? lc.h - 2 : 4),
-            type: pickLootItem(level),
-          });
+    if (!r) continue;
+    const lx = r.cx + pick([-1, 1]) * rng(4, 8);
+    const ly = r.cy + pick([-1, 1]) * rng(4, 8);
+    if (lx > 3 && lx < MAP_W - 12 && ly > 3 && ly < MAP_H - 12) {
+      const lw = rng(5, 8), lh = rng(5, 8);
+      map.carveRoom(lx, ly, lw, lh, theme.wallTypes[0], theme.floorType, 0);
+      map.specialTiles.set(`${lx+Math.floor(lw/2)},${ly+Math.floor(lh/2)}`, { type: 'loot_room' });
+      carveThemedHallway(map, lx + Math.floor(lw/2), ly + Math.floor(lh/2), r.cx, r.cy, wallType, theme.floorType);
+      const numItems = rng(2, 5);
+      for (let j = 0; j < numItems; j++) {
+        map.items.push({
+          x: lx + rng(1, lw - 2),
+          y: ly + rng(1, lh - 2),
+          type: pickLootItem(level, themeKey),
+        });
+      }
+    }
+  }
+
+  // Event rooms (not in poolrooms or party)
+  if (themeKey !== 'poolrooms') {
+    const eventCount = rng(1, 2 + Math.floor(level / 2));
+    for (let i = 0; i < eventCount; i++) {
+      const rx = rng(3, MAP_W - 18), ry = rng(3, MAP_H - 16);
+      let ok = true;
+      for (const r of rooms) {
+        if (rx < r.x + r.w + 3 && rx + 14 > r.x - 3 && ry < r.y + r.h + 3 && ry + 12 > r.y - 3) {
+          ok = false; break;
         }
       }
+      if (ok) {
+        const ew = rng(8, 14), eh = rng(8, 12);
+        const etype = pick(['event_dark', 'event_scream', 'event_chase_trigger']);
+        map.carveRoom(rx, ry, ew, eh, T.WALL_DARK, 0, 0);
+        const ec = { cx: rx + Math.floor(ew/2), cy: ry + Math.floor(eh/2) };
+        map.specialTiles.set(`${ec.cx},${ec.cy}`, { type: etype });
+        let near = rooms[0], nearD = Infinity;
+        for (const r of rooms) {
+          const d = Math.abs(r.cx - ec.cx) + Math.abs(r.cy - ec.cy);
+          if (d < nearD) { nearD = d; near = r; }
+        }
+        map.carveHallway(ec.cx, ec.cy, near.cx, near.cy);
+      }
     }
   }
 
-  // Place event rooms
-  const eventCount = rng(1, 2 + level);
-  for (let i = 0; i < eventCount; i++) {
-    const rx = rng(3, MAP_W - 18), ry = rng(3, MAP_H - 16);
-    let ok = true;
-    for (const r of rooms) {
-      if (rx < r.x + r.w + 3 && rx + 14 > r.x - 3 && ry < r.y + r.h + 3 && ry + 12 > r.y - 3) {
-        ok = false; break;
-      }
-    }
-    if (ok) {
-      const ec = placeEventRoom(map, rx, ry);
-      // Connect to nearest room
-      let near = rooms[0], nearD = Infinity;
-      for (const r of rooms) {
-        const d = Math.abs(r.cx - ec.cx) + Math.abs(r.cy - ec.cy);
-        if (d < nearD) { nearD = d; near = r; }
-      }
-      map.carveHallway(ec.cx, ec.cy, near.cx, near.cy);
-    }
-  }
-
-  // Place exit in the room farthest from spawn
+  // Exit in farthest room
   const lastRoom = rooms[rooms.length - 1];
   map.exitX = lastRoom.cx;
   map.exitY = lastRoom.cy;
   map.specialTiles.set(`${lastRoom.cx},${lastRoom.cy}`, { type: 'exit' });
 
-  // Scatter items across rooms
+  // Scatter items
   for (let i = 2; i < rooms.length; i++) {
     const r = rooms[i];
     if (Math.random() < 0.5) {
@@ -401,56 +492,50 @@ export function generateLevel(level = 1) {
         map.items.push({
           x: r.x + rng(1, r.w - 2) + 0.5,
           y: r.y + rng(1, r.h - 2) + 0.5,
-          type: pickRandomItem(level),
+          type: pickThemeItem(themeKey, level),
         });
       }
     }
   }
 
   // Place entities
-  const numEntities = Math.max(1, Math.floor(rooms.length / 4) + (level - 1));
-  const entityRooms = rooms.slice(Math.floor(rooms.length * 0.4)); // Spawn in back half
-  for (let i = 0; i < Math.min(numEntities, entityRooms.length); i++) {
-    const r = entityRooms[i % entityRooms.length];
-    map.entities.push({
-      x: r.cx + 0.5 + (Math.random() - 0.5) * 2,
-      y: r.cy + 0.5 + (Math.random() - 0.5) * 2,
-      type: level >= 3 && i === 0 ? 'fast' : 'stalker',
-    });
+  if (theme.entityTypes.length > 0) {
+    const numEntities = Math.max(2, Math.floor(rooms.length / 3) + (level - 1));
+    const entityRooms = rooms.slice(Math.floor(rooms.length * 0.35));
+    for (let i = 0; i < Math.min(numEntities, entityRooms.length); i++) {
+      const r = entityRooms[i % entityRooms.length];
+      map.entities.push({
+        x: r.cx + 0.5 + (Math.random() - 0.5) * 2,
+        y: r.cy + 0.5 + (Math.random() - 0.5) * 2,
+        type: pick(theme.entityTypes),
+      });
+    }
   }
 
-  // Bake static lighting
+  // Bake lighting with theme ambient base
   map.bakeLight();
 
   return map;
 }
 
-function pickLootItem(level) {
-  const lootTable = [
-    'medkit', 'medkit',
-    'battery', 'battery', 'battery',
-    'almond_water',
-    'flashlight_heavy',
-    'security_keycard',
-    'fire_axe',
-    'motion_sensor',
-    'emergency_lantern',
-    'rare_collectible',
-  ];
-  if (level >= 2) lootTable.push('flash_grenade', 'weapon_part');
-  return pick(lootTable);
+// ── ITEM TABLES ──────────────────────────────────────────────────────────────
+function pickLootItem(level, theme) {
+  const base = ['medkit', 'medkit', 'battery', 'battery', 'battery',
+    'almond_water', 'flashlight_heavy', 'security_keycard', 'emergency_lantern'];
+  if (level >= 2) base.push('flash_grenade', 'weapon_part');
+  if (level >= 3) base.push('fire_axe', 'motion_sensor');
+  if (theme === 'pipes') base.push('battery', 'emergency_lantern'); // more light sources
+  if (theme === 'party') base.push('almond_water', 'almond_water');
+  return pick(base);
 }
 
-function pickRandomItem(level) {
-  const items = [
-    'battery', 'battery', 'battery',
-    'medkit',
-    'almond_water', 'almond_water',
-    'tool',
-    'key',
-    'pipe',
-  ];
-  if (level >= 2) items.push('security_keycard', 'weapon_part');
-  if (level >= 3) items.push('flash_grenade', 'fire_axe');
-  return pick(items);
+function pickThemeItem(theme, level) {
+  const base = ['battery', 'battery', 'battery', 'medkit', 'almond_water', 'almond_water'];
+  if (theme === 'lobby') return pick(['battery', 'almond_water', 'key', 'tool']);
+  if (theme === 'warehouse') return pick([...base, 'pipe', 'key', 'tool']);
+  if (theme === 'pipes') return pick(['battery', 'battery', 'emergency_lantern', 'medkit']);
+  if (theme === 'electrical') return pick([...base, 'security_keycard', 'weapon_part']);
+  if (theme === 'poolrooms') return pick(['almond_water', 'almond_water', 'medkit']);
+  if (theme === 'party') return pick(['almond_water', 'medkit', 'flash_grenade']);
+  return pick(base);
 }

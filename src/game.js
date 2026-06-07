@@ -164,8 +164,13 @@ export class Game {
     this.ui.on('hotbar_select', ({ slot }) => { this.inventory.selectSlot(slot); });
     this.ui.on('inventory_toggle', ({ open }) => {
       if (this.player) {
-        if (open) document.exitPointerLock?.();
-        else if (this.state === STATES.PLAYING) document.body.requestPointerLock?.();
+        if (open) {
+          document.exitPointerLock?.();
+          if (this.ui.isMobile) this.touchControls.disable(); // prevent joy zone intercepting taps
+        } else if (this.state === STATES.PLAYING) {
+          document.body.requestPointerLock?.();
+          if (this.ui.isMobile) this.touchControls.enable();
+        }
       }
     });
 
@@ -323,6 +328,9 @@ export class Game {
       this.touchControls.enable();
     }
 
+    // Apply level theme to renderer and audio
+    this._setupLevelTheme();
+
     // Start music
     this.audio.setMusicState('calm');
 
@@ -407,6 +415,23 @@ export class Game {
     if (!this.ui.isMobile) document.body.requestPointerLock?.();
     else this.touchControls.enable();
     this.audio.setMusicState('calm');
+  }
+
+  _setupLevelTheme() {
+    if (!this.map) return;
+    const cfg = this.map.themeConfig;
+    if (!cfg) return;
+
+    // Renderer — ambient, fog, textures
+    this.renderer.ambientLight = this.map.ambientBase;
+    this.renderer.fogDensity = cfg.fogDensity || 0.09;
+    this.renderer.fogColorR = cfg.fogColorR || 0;
+    this.renderer.fogColorG = cfg.fogColorG || 0;
+    this.renderer.fogColorB = cfg.fogColorB || 0;
+    this.renderer.floorTexName = cfg.floorTexName || 'carpet';
+
+    // Audio — level ambient profile
+    this.audio.setLevelAmbient(cfg.ambientProfile || 'default');
   }
 
   enterSaveRoom() {
@@ -581,9 +606,50 @@ export class Game {
     // Inventory
     this.inventory.update(dt);
 
-    // Entities
+    // Entities — with context for new AI behaviors
     for (const e of this.entities) {
-      e.update(dt, this.map, this.player, this.disturbance);
+      if (!e.alive) continue;
+
+      // Hound stare mechanic: check if player is looking directly at it
+      if (e.type === 'hound') {
+        const edx = e.x - this.player.x, edy = e.y - this.player.y;
+        const edist = Math.sqrt(edx * edx + edy * edy);
+        if (edist < e.sightRange && edist > 0.5) {
+          const dot = (edx / edist) * this.player.dirX + (edy / edist) * this.player.dirY;
+          if (dot > 0.93 && this.map.hasLineOfSight(this.player.x, this.player.y, e.x, e.y)) {
+            e.notifyStared(dt);
+          } else {
+            e.stareTimer = Math.max(0, e.stareTimer - dt * 2); // decay when not staring
+          }
+        }
+      }
+
+      // Partygoer collective alert
+      if (e._pendingGroupAlert) {
+        e._pendingGroupAlert = false;
+        for (const other of this.entities) {
+          if (other !== e && other.type === 'partygoer' && other.alive) {
+            if (other.distanceTo(e.x, e.y) < 22) {
+              other.state = 'chase';
+              other.lastKnownX = this.player.x;
+              other.lastKnownY = this.player.y;
+              other._alreadyAlerting = true;
+            }
+          }
+        }
+      }
+
+      // Partygoer music cut
+      if (e._pendingPartyMusicCut) {
+        e._pendingPartyMusicCut = false;
+        this.audio.playPartyAlert();
+      }
+
+      const lightAtEntity = this.map.getLightAt(e.x, e.y);
+      e.update(dt, this.map, this.player, this.disturbance, {
+        lightLevel: lightAtEntity,
+        playerFlashlight: this.player.flashlightOn && this.player.flashlightBattery > 0,
+      });
     }
 
     // World items
@@ -603,13 +669,22 @@ export class Game {
     this.effects.update(dt, this.player, this.events, this.renderer);
     this.ui.update(dt, this);
 
-    // Chase state detection
+    // Poolrooms passive healing
+    if (this.map && this.map.theme === 'poolrooms' && this.player) {
+      this.player.health = Math.min(this.player.maxHealth, this.player.health + dt * 5);
+      this.player.sanity = Math.min(this.player.maxSanity, this.player.sanity + dt * 10);
+      this.player.flashlightBattery = Math.min(100, this.player.flashlightBattery + dt * 2);
+    }
+
+    // Chase state detection with heartbeat control
     const isChasing = this.entities.some(e => e.alive && e.isChasing());
     if (isChasing && !this.isChaseActive) {
       this.isChaseActive = true;
       this.audio.setMusicState('chase');
+      this.audio.setHeartbeat(true, 128);    // fast heartbeat during chase
       this.renderer.emergencyMode = true;
-      this.effects.setChaseMode(true);
+      this.effects.heartbeatActive = true;
+      this.effects.heartbeatBPM = 128;
       this.player.shake(0.5, 0.3);
       this.chaseTimer = 0;
     } else if (!isChasing && this.isChaseActive) {
@@ -617,8 +692,9 @@ export class Game {
       if (this.chaseTimer > 5) {
         this.isChaseActive = false;
         this.renderer.emergencyMode = false;
-        this.effects.setChaseMode(false);
         this.audio.setMusicState(this.inSaveRoom ? 'save' : 'calm');
+        this.audio.setHeartbeat(false);
+        this.effects.heartbeatActive = false;
       }
     } else if (isChasing) {
       this.chaseTimer = 0;
@@ -638,12 +714,28 @@ export class Game {
       if (this.motionSensorTimer <= 0) { this.motionSensorActive = false; }
     }
 
-    // Tense music when nearby entity stalking
+    // Tense music + slow heartbeat when entity is stalking
     const isStalking = this.entities.some(e => e.alive && e.isStalking());
     if (isStalking && !isChasing && this.audio._currentMusicState !== 'tense' && this.audio._currentMusicState !== 'chase') {
       this.audio.setMusicState('tense');
-    } else if (!isChasing && !isStalking && this.audio._currentMusicState === 'tense') {
-      this.audio.setMusicState('calm');
+      this.audio.setHeartbeat(true, 90);
+      this.effects.heartbeatActive = true;
+      this.effects.heartbeatBPM = 90;
+    } else if (!isChasing && !isStalking) {
+      if (this.audio._currentMusicState === 'tense') this.audio.setMusicState('calm');
+      if (this.effects.heartbeatActive && !isChasing) {
+        this.audio.setHeartbeat(false);
+        this.effects.heartbeatActive = false;
+      }
+    }
+
+    // Dark tile hazard (poolroom death zones)
+    if (this.player) {
+      const px2 = Math.floor(this.player.x), py2 = Math.floor(this.player.y);
+      const ftype = this.map.getFloor(px2, py2);
+      if (ftype === 103) { // FLOOR_DARK
+        this.player.damage(dt * 80, 'dark_tile');
+      }
     }
 
     // Renderer brightness from events

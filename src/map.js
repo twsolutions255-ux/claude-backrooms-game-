@@ -20,11 +20,17 @@ export const T = {
   LOCKER_OPEN: 13,
   WINDOW: 14,
   VENT: 15,
+  WALL_PIPE: 16,
+  WALL_BRICK_RED: 17,
+  WALL_PARTY: 18,
   // Floor variants (add 100 to distinguish floor from wall, used in floor renderer)
   FLOOR_CARPET: 0,
   FLOOR_TILE: 100,
   FLOOR_WET: 101,
   FLOOR_CONCRETE: 102,
+  FLOOR_DARK: 103,
+  FLOOR_PARTY: 104,
+  FLOOR_POOL: 105,
 };
 
 // Each tile is one byte in the tiles array
@@ -50,6 +56,9 @@ export class GameMap {
     this.exitX = 0;
     this.exitY = 0;
     this.roomList = []; // {x, y, w, h, type}
+    this.ambientBase = 0.06; // per-level ambient light base
+    this.theme = 'default';  // level theme name
+    this.themeConfig = null; // full theme config object
     // Fill all with solid walls initially
     this.tiles.fill(T.WALL_PAPER);
   }
@@ -142,7 +151,7 @@ export class GameMap {
 
   // Bake ambient light into light array based on sources and ceiling tiles
   bakeLight() {
-    this.light.fill(0.06); // base ambient (very dark)
+    this.light.fill(this.ambientBase); // base ambient (per-level configurable)
     // Ceiling light panels spread light downward
     for (let y = 0; y < MAP_H; y++) {
       for (let x = 0; x < MAP_W; x++) {

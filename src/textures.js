@@ -212,6 +212,81 @@ export const texWood = makeTex((x, y) => {
   );
 });
 
+// ── PIPED WALL (dark concrete with industrial pipe overlay) ───────────────────
+export const texPipedWall = makeTex((x, y) => {
+  const n = smoothNoise(x * 0.25, y * 0.25, 30) * 0.3;
+  const base = 35 + n * 25;
+  const pipeH = y % 16 === 7 || y % 16 === 8;
+  const pipeV = x % 20 === 9 || x % 20 === 10;
+  if (pipeH && pipeV) return rgba(100, 50, 20); // rust at joint
+  if (pipeH) { const mn = smoothNoise(x * 0.8, y * 0.1, 31) * 12; return rgba(75 + mn, 68 + mn, 55 + mn); }
+  if (pipeV) { const mn = smoothNoise(x * 0.1, y * 0.8, 32) * 12; return rgba(60 + mn, 55 + mn, 45 + mn); }
+  const tar = smoothNoise(x * 0.08, y * 0.05, 33) > 0.76;
+  if (tar) return rgba(base * 0.35, base * 0.25, base * 0.15);
+  return rgba(base, base * 0.88, base * 0.72);
+});
+
+// ── DARK RED BRICK (oppressive underground) ───────────────────────────────────
+export const texBrickRed = makeTex((x, y) => {
+  const row = Math.floor(y / 8);
+  const offset = (row % 2) * 16;
+  const bx = (x + offset) % 32;
+  const isGrout = bx < 2 || (y % 8) < 1;
+  if (isGrout) return rgba(18, 12, 9);
+  const n = noise(x, y, 35) * 20;
+  const dark = smoothNoise(x * 0.06, y * 0.06, 36) * 0.45;
+  return rgba(
+    Math.max(12, (90 + n) * (1 - dark * 0.65)),
+    Math.max(6, (28 + n * 0.3) * (1 - dark * 0.8)),
+    Math.max(4, (15 + n * 0.15) * (1 - dark * 0.9))
+  );
+});
+
+// ── POOL FLOOR (light blue-white shimmer) ─────────────────────────────────────
+export const texPoolFloor = makeTex((x, y) => {
+  const grout = (x % 16 < 2) || (y % 16 < 2);
+  if (grout) return rgba(195, 210, 220);
+  const n = smoothNoise(x * 0.2, y * 0.2, 40) * 12;
+  const ripple = Math.sin(x * 0.3 + n * 0.5) * Math.cos(y * 0.25 + n * 0.4) * 6;
+  return rgba(
+    Math.min(255, 195 + n + ripple),
+    Math.min(255, 218 + n + ripple),
+    Math.min(255, 244 + n)
+  );
+});
+
+// ── PARTY WALL (pastel with polka dots) ───────────────────────────────────────
+export const texPartyWall = makeTex((x, y) => {
+  const cellX = Math.floor(x / 16), cellY = Math.floor(y / 16);
+  const hue = noise(cellX, cellY, 45);
+  let r, g, b;
+  if (hue < 0.33) { r = 255; g = 175; b = 195; }
+  else if (hue < 0.66) { r = 255; g = 240; b = 150; }
+  else { r = 175; g = 225; b = 255; }
+  const dotCx = x % 24 - 12, dotCy = y % 24 - 12;
+  if (dotCx * dotCx + dotCy * dotCy < 14) return rgba(255, 255, 255);
+  const n = smoothNoise(x * 0.4, y * 0.4, 46) * 8;
+  return rgba(Math.min(255, r + n), Math.min(255, g + n), Math.min(255, b + n));
+});
+
+// ── PARTY FLOOR (bright checkered) ────────────────────────────────────────────
+export const texPartyFloor = makeTex((x, y) => {
+  const tileX = Math.floor(x / 16) % 2, tileY = Math.floor(y / 16) % 2;
+  if ((tileX + tileY) % 2 === 0) return rgba(255, 255, 255);
+  const hue = noise(Math.floor(x / 16), Math.floor(y / 16), 47);
+  if (hue < 0.33) return rgba(255, 148, 175);
+  if (hue < 0.66) return rgba(148, 228, 148);
+  return rgba(148, 190, 255);
+});
+
+// ── DARK TILE (poolroom death zone — near-black) ──────────────────────────────
+export const texDarkTile = makeTex((x, y) => {
+  const grout = (x % 16 < 2) || (y % 16 < 2);
+  if (grout) return rgba(3, 3, 5);
+  const n = smoothNoise(x * 0.3, y * 0.3, 50) * 8;
+  return rgba(10 + n, 10 + n, 20 + n);
+});
+
 // ── ALL TEXTURES MAP ─────────────────────────────────────────────────────────
 export const TEXTURES = {
   wallpaper: texWallpaper,
@@ -231,6 +306,12 @@ export const TEXTURES = {
   floorWet: texFloorWet,
   saveRoom: texSaveRoom,
   wood: texWood,
+  pipedWall: texPipedWall,
+  brickRed: texBrickRed,
+  poolFloor: texPoolFloor,
+  partyWall: texPartyWall,
+  partyFloor: texPartyFloor,
+  darkTile: texDarkTile,
 };
 
 export function getTexPixel(tex, u, v) {

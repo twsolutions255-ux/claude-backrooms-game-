@@ -24,6 +24,11 @@ export class Renderer {
     this.cameraShake = { x: 0, y: 0, roll: 0 };
     this.vignette = 0; // 0-1, darkness at edges
     this.brightness = 1.0; // global brightness multiplier
+    this.floorTexName = 'carpet';   // per-level floor texture
+    this.ceilTexName = 'ceiling';   // per-level ceiling texture
+    this.fogColorR = 0;             // fog tint color
+    this.fogColorG = 0;
+    this.fogColorB = 0;
     this._sprites = [];
   }
 
@@ -76,8 +81,8 @@ export class Renderer {
     const rayDirX1 = dirX + planeX;
     const rayDirY1 = dirY + planeY;
 
-    const floorTex = TEXTURES.carpet;
-    const ceilTex = TEXTURES.ceiling;
+    const floorTex = TEXTURES[this.floorTexName] || TEXTURES.carpet;
+    const ceilTex = TEXTURES[this.ceilTexName] || TEXTURES.ceiling;
     const ceilLightTex = TEXTURES.ceilingLight;
 
     for (let y = HALF_H + 1; y < SCREEN_H; y++) {
@@ -94,23 +99,23 @@ export class Renderer {
         const tx = ((floorX * TEX_SIZE | 0) % TEX_SIZE + TEX_SIZE) % TEX_SIZE;
         const ty = ((floorY * TEX_SIZE | 0) % TEX_SIZE + TEX_SIZE) % TEX_SIZE;
 
-        // Floor pixel
+        // Floor pixel with fog color tint
         const fp = floorTex[ty * TEX_SIZE + tx];
-        const fr = (fp & 0xFF) * bright;
-        const fg = ((fp >> 8) & 0xFF) * bright;
-        const fb = ((fp >> 16) & 0xFF) * bright;
-        let ffr = fr, ffg = fg, ffb = fb;
-        if (emergency) { ffr = Math.min(255, fr * 1.2 + 15); ffg = fg * 0.3; ffb = fb * 0.3; }
+        const frBase = (fp & 0xFF) * bright + this.fogColorR * fog * 200;
+        const fgBase = ((fp >> 8) & 0xFF) * bright + this.fogColorG * fog * 200;
+        const fbBase = ((fp >> 16) & 0xFF) * bright + this.fogColorB * fog * 200;
+        let ffr = frBase, ffg = fgBase, ffb = fbBase;
+        if (emergency) { ffr = Math.min(255, frBase * 1.2 + 15); ffg = fgBase * 0.3; ffb = fbBase * 0.3; }
         buf[y * SCREEN_W + x] = (255 << 24) | ((ffb | 0) << 16) | ((ffg | 0) << 8) | (ffr | 0);
 
         // Ceiling pixel (mirrored y)
         const cy2 = SCREEN_H - y - 1;
         const cp = ceilTex[ty * TEX_SIZE + tx];
-        const cr = (cp & 0xFF) * bright * 0.85;
-        const cg = ((cp >> 8) & 0xFF) * bright * 0.85;
-        const cb = ((cp >> 16) & 0xFF) * bright * 0.85;
-        let fcr = cr, fcg = cg, fcb = cb;
-        if (emergency) { fcr = Math.min(255, cr * 1.3 + 20); fcg = cg * 0.2; fcb = cb * 0.2; }
+        const crBase = (cp & 0xFF) * bright * 0.85 + this.fogColorR * fog * 160;
+        const cgBase = ((cp >> 8) & 0xFF) * bright * 0.85 + this.fogColorG * fog * 160;
+        const cbBase = ((cp >> 16) & 0xFF) * bright * 0.85 + this.fogColorB * fog * 160;
+        let fcr = crBase, fcg = cgBase, fcb = cbBase;
+        if (emergency) { fcr = Math.min(255, crBase * 1.3 + 20); fcg = cgBase * 0.2; fcb = cbBase * 0.2; }
         buf[cy2 * SCREEN_W + x] = (255 << 24) | ((fcb | 0) << 16) | ((fcg | 0) << 8) | (fcr | 0);
 
         floorX += stepX;
@@ -204,6 +209,9 @@ export class Renderer {
       case T.WALL_TILE: return TEXTURES.poolTile;
       case T.WALL_SAVE: return TEXTURES.saveRoom;
       case T.WALL_WOOD: return TEXTURES.wood;
+      case T.WALL_PIPE: return TEXTURES.pipedWall;
+      case T.WALL_BRICK_RED: return TEXTURES.brickRed;
+      case T.WALL_PARTY: return TEXTURES.partyWall;
       case T.DOOR_CLOSED: return TEXTURES.door;
       case T.LOCKER_CLOSED: return TEXTURES.locker;
       case T.WINDOW: return TEXTURES.window;
@@ -290,27 +298,88 @@ export class Renderer {
   }
 
   _entityPixel(entity, tx, ty) {
-    // Procedural entity sprite — tall dark figure
-    const cx = Math.abs(tx - 32), cy = ty;
+    const type = entity.type || 'stalker';
 
-    // Head
-    if (cy < 8 && cx < 10) {
-      if (cx < 8 && cy > 2) return 0xFF101010 | 0xFF000000;
+    // ── SMILER: just two glowing eyes + wide grin ──────────────────────────
+    if (type === 'smiler') {
+      const eyeL = Math.abs(tx - 22) < 4 && ty >= 18 && ty <= 22;
+      const eyeR = Math.abs(tx - 42) < 4 && ty >= 18 && ty <= 22;
+      if (eyeL || eyeR) return (0xFFFFFFFF); // glowing white eyes
+      // Grin — curved smile
+      const grinY = 32 + Math.abs(tx - 32) * 0.25;
+      if (ty >= grinY && ty <= grinY + 3 && tx > 16 && tx < 48) return (0xFFFFFFFF);
       return 0;
     }
-    // Eyes (glowing when chasing)
+
+    // ── PARTYGOER: tall yellow figure ─────────────────────────────────────
+    if (type === 'partygoer') {
+      const cx = Math.abs(tx - 32), cy = ty;
+      if (cy < 10 && cx < 12) return 0xFF00DDFF; // yellow head (ABGR)
+      // Carved bloody smile
+      if (cy >= 5 && cy <= 7 && tx > 20 && tx < 44) return 0xFF2020CC; // red smile
+      // Long arms
+      if (cy >= 10 && cy <= 28 && cx >= 12 && cx < 28) return 0xFF00DDFF;
+      // Body
+      if (cy >= 10 && cy <= 50 && cx < 12) return 0xFF00DDFF;
+      // Legs
+      if (cy >= 50 && cy <= 64 && (Math.abs(tx - 26) < 7 || Math.abs(tx - 38) < 7)) return 0xFF00DDFF;
+      return 0;
+    }
+
+    // ── DEATHMOTH: large moth wings ───────────────────────────────────────
+    if (type === 'deathmoth') {
+      const cx = tx - 32, cy = ty - 32;
+      // Wings (elliptical shape each side)
+      const leftWing = (cx < 0 && cx > -28 && Math.abs(cy) < (20 - Math.abs(cx) * 0.5));
+      const rightWing = (cx > 0 && cx < 28 && Math.abs(cy) < (20 - cx * 0.5));
+      if (leftWing || rightWing) {
+        // Wing pattern
+        const wn = Math.abs(cx * cy) % 5 < 1;
+        return wn ? 0xFF303050 : 0xFF404060;
+      }
+      // Body
+      if (Math.abs(cx) < 4 && cy > -18 && cy < 18) return 0xFF303030;
+      return 0;
+    }
+
+    // ── FACELING: featureless humanoid ────────────────────────────────────
+    if (type === 'faceling') {
+      const cx = Math.abs(tx - 32), cy = ty;
+      if (cy < 8 && cx < 10) return 0xFFB8A898; // skin tone head, no features
+      if (cy >= 8 && cy <= 48 && cx < 13) return 0xFFC8B8A8;
+      if (cy >= 12 && cy <= 35 && cx >= 13 && cx < 20) return 0xFFC8B8A8;
+      if (cy >= 48 && cy <= 64 && (Math.abs(tx - 26) < 6 || Math.abs(tx - 38) < 6)) return 0xFFC8B8A8;
+      return 0;
+    }
+
+    // ── HOUND: dark quadruped ──────────────────────────────────────────────
+    if (type === 'hound') {
+      const cx = tx - 32, cy = ty - 32;
+      // Body (elongated horizontal)
+      if (Math.abs(cy) < 8 && Math.abs(cx) < 22) return 0xFF101010;
+      // Legs
+      const legPos = [-16, -8, 8, 16];
+      for (const lx of legPos) {
+        if (Math.abs(tx - 32 - lx) < 3 && cy > 5 && cy < 20) return 0xFF101010;
+      }
+      // Head
+      if (cx > 15 && cx < 28 && cy > -10 && cy < 4) return 0xFF101010;
+      // Glowing eyes when chasing
+      if ((entity.state === 'chase' || entity.state === 'attack') && cx > 18 && cx < 22 && cy > -8 && cy < -5) return 0xFF0000FF;
+      return 0;
+    }
+
+    // ── DEFAULT: tall dark stalker ─────────────────────────────────────────
+    const cx = Math.abs(tx - 32), cy = ty;
+    if (cy < 8 && cx < 10) { if (cx < 8 && cy > 2) return 0xFF101010 | 0xFF000000; return 0; }
     if (cy >= 3 && cy <= 5 && (Math.abs(tx - 24) < 3 || Math.abs(tx - 40) < 3)) {
       const isChasing = entity.state === 'chase' || entity.state === 'attack';
       return isChasing ? (0xFF0000FF | 0xFF000000) : (0xFF333333 | 0xFF000000);
     }
-    // Body
     if (cy >= 8 && cy <= 48 && cx < 14) return 0xFF0D0D0D | 0xFF000000;
-    // Arms
     if (cy >= 12 && cy <= 36 && cx >= 14 && cx < 22) return 0xFF0D0D0D | 0xFF000000;
-    // Legs
     if (cy >= 48 && cy <= 64 && (Math.abs(tx - 26) < 6 || Math.abs(tx - 38) < 6)) return 0xFF0D0D0D | 0xFF000000;
-
-    return 0; // transparent
+    return 0;
   }
 
   _itemPixel(item, tx, ty) {

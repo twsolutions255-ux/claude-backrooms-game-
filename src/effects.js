@@ -26,6 +26,14 @@ export class EffectsSystem {
     // Chase effects
     this.chaseIntensity = 0;
 
+    // Blackout (power outage)
+    this.blackoutLevel = 0;
+
+    // Heartbeat visual
+    this.heartbeatActive = false;
+    this.heartbeatBPM = 80;
+    this.heartbeatPhase = 0;
+
     this._grainBuf = null;
     this._grainFrame = 0;
     this._grainData = [];
@@ -74,9 +82,19 @@ export class EffectsSystem {
       }
     }
 
-    // Chase effects
+    // Chase effects — decay smoothly when chase ends
     if (renderer) {
-      this.chaseIntensity = renderer.emergencyMode ? 0.8 : 0;
+      if (renderer.emergencyMode) {
+        this.chaseIntensity = Math.min(1.0, this.chaseIntensity + dt * 3);
+      } else {
+        this.chaseIntensity = Math.max(0, this.chaseIntensity - dt * 2);
+      }
+    }
+
+    // Heartbeat visual phase
+    if (this.heartbeatActive) {
+      const bps = this.heartbeatBPM / 60;
+      this.heartbeatPhase = (this.heartbeatPhase + dt * bps * Math.PI * 2) % (Math.PI * 2);
     }
 
     // Decay effects
@@ -227,11 +245,33 @@ export class EffectsSystem {
     }
 
     // ── EMERGENCY RED OVERLAY ─────────────────────────────────────────────
-    if (this.chaseIntensity > 0.3) {
+    if (this.chaseIntensity > 0.05) {
       const redPulse = (Math.sin(this.pulseTimer * 2) * 0.5 + 0.5) * 0.3;
       ctx.save();
-      ctx.globalAlpha = (this.chaseIntensity - 0.3) * 0.15 + redPulse * this.chaseIntensity * 0.1;
+      ctx.globalAlpha = Math.max(0, (this.chaseIntensity - 0.05) * 0.18 + redPulse * this.chaseIntensity * 0.1);
       ctx.fillStyle = '#f00';
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
+
+    // ── HEARTBEAT VIGNETTE PULSE ──────────────────────────────────────────
+    if (this.heartbeatActive && this.chaseIntensity > 0.1) {
+      const beat = Math.max(0, Math.sin(this.heartbeatPhase) * 0.6 + 0.4);
+      ctx.save();
+      ctx.globalAlpha = beat * 0.12 * this.chaseIntensity;
+      const hbGrad = ctx.createRadialGradient(W/2, H/2, H*0.2, W/2, H/2, H*0.8);
+      hbGrad.addColorStop(0, 'transparent');
+      hbGrad.addColorStop(1, 'rgba(180,0,0,1)');
+      ctx.fillStyle = hbGrad;
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
+
+    // ── BLACKOUT OVERLAY ──────────────────────────────────────────────────
+    if (this.blackoutLevel > 0.01) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, this.blackoutLevel);
+      ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, W, H);
       ctx.restore();
     }
