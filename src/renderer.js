@@ -35,6 +35,8 @@ export class Renderer {
     this._weaponSwingT = 0;         // 1→0, attack animation
     this._weaponBobT = 0;           // accumulates with movement
     this._game = null;              // set by game.js
+    this._time = 0;                 // running time for animations
+    this.themeWallTex = null;       // per-level wall texture override
   }
 
   // ── SET PIXEL ──────────────────────────────────────────────────────────────
@@ -67,6 +69,7 @@ export class Renderer {
 
   // ── MAIN RENDER ───────────────────────────────────────────────────────────
   render(map, player, entities, worldItems, dt = 0) {
+    if (dt > 0) this._time += dt;
     this._renderScene(map, player);
     this._renderSprites(map, player, entities, worldItems);
     // Weapon bob + swing update
@@ -76,25 +79,40 @@ export class Renderer {
     }
     this._renderWeapon(this.buf32, player);
     this._renderVignette();
+    this._renderEmergencyVignette();
     this.ctx.putImageData(this.imgData, 0, 0);
+  }
+
+  _getFloorTexForTile(floorType) {
+    switch(floorType) {
+      case T.FLOOR_GRASS:    return TEXTURES.grass;
+      case T.FLOOR_ROAD:     return TEXTURES.road;
+      case T.FLOOR_POOL:     return TEXTURES.poolFloor;
+      case T.FLOOR_WET:      return TEXTURES.floorWet;
+      case T.FLOOR_WOOD:     return TEXTURES.wood;
+      case T.FLOOR_TILE:     return TEXTURES.poolTile;
+      case T.FLOOR_PARTY:    return TEXTURES.partyFloor;
+      case T.FLOOR_DARK:     return TEXTURES.darkTile;
+      case T.FLOOR_CONCRETE: return TEXTURES.concrete;
+      default:               return null;
+    }
   }
 
   _renderScene(map, player) {
     const { x: px, y: py, dirX, dirY, planeX, planeY } = player;
     const buf = this.buf32;
     const zbuf = this.zbuf;
-    const emergency = this.emergencyMode;
+    const isWater = (this.floorTexName === 'poolFloor' || this.floorTexName === 'floorWet');
 
     // ── CEILING + FLOOR CASTING ──────────────────────────────────────────────
-    // Pre-compute ray directions
     const rayDirX0 = dirX - planeX;
     const rayDirY0 = dirY - planeY;
     const rayDirX1 = dirX + planeX;
     const rayDirY1 = dirY + planeY;
 
-    const floorTex = TEXTURES[this.floorTexName] || TEXTURES.carpet;
+    const defaultFloorTex = TEXTURES[this.floorTexName] || TEXTURES.carpet;
     const ceilTex = TEXTURES[this.ceilTexName] || TEXTURES.ceiling;
-    const ceilLightTex = TEXTURES.ceilingLight;
+    const t = this._time;
 
     for (let y = HALF_H + 1; y < SCREEN_H; y++) {
       const rowDist = SCREEN_H / (2.0 * y - SCREEN_H);
@@ -107,37 +125,46 @@ export class Renderer {
       const bright = Math.max(0, (1 - fog) * this.brightness);
 
       for (let x = 0; x < SCREEN_W; x++) {
-        const tx = ((floorX * TEX_SIZE | 0) % TEX_SIZE + TEX_SIZE) % TEX_SIZE;
-        const ty = ((floorY * TEX_SIZE | 0) % TEX_SIZE + TEX_SIZE) % TEX_SIZE;
+        const mapFX = Math.floor(floorX), mapFY = Math.floor(floorY);
+        const floorType = map.floor ? map.floor[mapFX + mapFY * MAP_W] : 0;
+        const tileTex = this._getFloorTexForTile(floorType);
+        const floorTex = tileTex || defaultFloorTex;
 
-        // Floor pixel with fog color tint
-        const fp = floorTex[ty * TEX_SIZE + tx];
+        let ftx, fty;
+        if (isWater && !tileTex) {
+          // Animated water ripple distortion
+          const wave = Math.sin(floorX * 2.5 + t * 2.8) * 1.8 + Math.cos(floorY * 2.2 + t * 2.1) * 1.5;
+          ftx = ((((floorX * TEX_SIZE | 0) + (wave | 0)) % TEX_SIZE) + TEX_SIZE) % TEX_SIZE;
+          fty = ((((floorY * TEX_SIZE | 0) + ((wave * 0.5) | 0)) % TEX_SIZE) + TEX_SIZE) % TEX_SIZE;
+        } else {
+          ftx = ((floorX * TEX_SIZE | 0) % TEX_SIZE + TEX_SIZE) % TEX_SIZE;
+          fty = ((floorY * TEX_SIZE | 0) % TEX_SIZE + TEX_SIZE) % TEX_SIZE;
+        }
+
+        // Floor pixel
+        const fp = floorTex[fty * TEX_SIZE + ftx];
         const frBase = (fp & 0xFF) * bright + this.fogColorR * fog * 200;
         const fgBase = ((fp >> 8) & 0xFF) * bright + this.fogColorG * fog * 200;
         const fbBase = ((fp >> 16) & 0xFF) * bright + this.fogColorB * fog * 200;
-        let ffr = frBase, ffg = fgBase, ffb = fbBase;
-        if (emergency) { ffr = Math.min(255, frBase * 1.2 + 15); ffg = fgBase * 0.3; ffb = fbBase * 0.3; }
-        buf[y * SCREEN_W + x] = (255 << 24) | ((ffb | 0) << 16) | ((ffg | 0) << 8) | (ffr | 0);
+        buf[y * SCREEN_W + x] = (255 << 24) | ((fbBase | 0) << 16) | ((fgBase | 0) << 8) | (frBase | 0);
 
         // Ceiling pixel (mirrored y)
         const cy2 = SCREEN_H - y - 1;
-        const ceilType = map.ceiling ? (map.ceiling[Math.floor(floorX) + Math.floor(floorY) * MAP_W] ?? 0) : 0;
+        const ceilType = map.ceiling ? (map.ceiling[mapFX + mapFY * MAP_W] ?? 0) : 0;
         if (ceilType === 2 && this._skyConfig) {
-          // Sky gradient: top of screen=top color, horizon=bot color
-          const skyT = cy2 / HALF_H; // 0=top, 1=horizon
+          const skyT = cy2 / HALF_H;
           const sky = this._skyConfig;
           const skr = (sky.topR + (sky.botR - sky.topR) * skyT) | 0;
           const skg = (sky.topG + (sky.botG - sky.topG) * skyT) | 0;
           const skb = (sky.topB + (sky.botB - sky.topB) * skyT) | 0;
           buf[cy2 * SCREEN_W + x] = (255 << 24) | (skb << 16) | (skg << 8) | skr;
         } else {
-          const cp = ceilTex[ty * TEX_SIZE + tx];
+          const tx2 = ftx, ty2 = fty;
+          const cp = ceilTex[ty2 * TEX_SIZE + tx2];
           const crBase = (cp & 0xFF) * bright * 0.85 + this.fogColorR * fog * 160;
           const cgBase = ((cp >> 8) & 0xFF) * bright * 0.85 + this.fogColorG * fog * 160;
           const cbBase = ((cp >> 16) & 0xFF) * bright * 0.85 + this.fogColorB * fog * 160;
-          let fcr = crBase, fcg = cgBase, fcb = cbBase;
-          if (emergency) { fcr = Math.min(255, crBase * 1.3 + 20); fcg = cgBase * 0.2; fcb = cbBase * 0.2; }
-          buf[cy2 * SCREEN_W + x] = (255 << 24) | ((fcb | 0) << 16) | ((fcg | 0) << 8) | (fcr | 0);
+          buf[cy2 * SCREEN_W + x] = (255 << 24) | ((cbBase | 0) << 16) | ((cgBase | 0) << 8) | (crBase | 0);
         }
 
         floorX += stepX;
@@ -145,9 +172,8 @@ export class Renderer {
       }
     }
 
-    // Draw horizon line (middle row — pure fog)
-    const midFog = emergency ? 0x300808 : 0x0a0905;
-    for (let x = 0; x < SCREEN_W; x++) buf[HALF_H * SCREEN_W + x] = (255 << 24) | midFog;
+    // Horizon line
+    for (let x = 0; x < SCREEN_W; x++) buf[HALF_H * SCREEN_W + x] = (255 << 24) | 0x0a0905;
 
     // ── WALL CASTING ─────────────────────────────────────────────────────────
     for (let col = 0; col < NUM_RAYS; col++) {
@@ -166,7 +192,7 @@ export class Renderer {
 
       let hit = false, side = 0;
       let tile = 0;
-      for (let i = 0; i < 80 && !hit; i++) {
+      for (let i = 0; i < 120 && !hit; i++) {
         if (sideX < sideY) { sideX += deltaX; mapX += stepX2; side = 0; }
         else { sideY += deltaY; mapY += stepY2; side = 1; }
         tile = map.get(mapX, mapY);
@@ -211,9 +237,7 @@ export class Renderer {
           // Fog + light
           const fog = Math.min(1, perpDist * this.fogDensity);
           const bright = Math.max(0, (1 - fog) * totalLight * this.brightness);
-          let fr2 = r2 * bright, fg2 = g2 * bright, fb2 = b2 * bright;
-          if (emergency) { fr2 = Math.min(255, fr2 * 1.3 + 25); fg2 *= 0.2; fb2 *= 0.2; }
-
+          const fr2 = r2 * bright, fg2 = g2 * bright, fb2 = b2 * bright;
           buf[y2 * SCREEN_W + screenCol] = (255 << 24) | ((fb2 | 0) << 16) | ((fg2 | 0) << 8) | (fr2 | 0);
         }
       }
@@ -221,6 +245,12 @@ export class Renderer {
   }
 
   _wallTex(tile) {
+    // Per-theme wall override for special levels (hospital, dreamcore, etc.)
+    if (this.themeWallTex) {
+      if (tile === T.WALL_TILE || tile === T.WALL_PAPER || tile === T.WALL_CONCRETE) {
+        return this.themeWallTex;
+      }
+    }
     switch(tile) {
       case T.WALL_PAPER: return TEXTURES.wallpaper;
       case T.WALL_DARK: return TEXTURES.wallpaperDark;
@@ -240,7 +270,7 @@ export class Renderer {
       case 19: return TEXTURES.metal;      // VENDING_MACHINE
       case 20: return TEXTURES.wood;       // TABLE
       case 21: return TEXTURES.metal;      // ARCADE_MACHINE
-      case 22: return TEXTURES.concrete;   // HOSPITAL_BED
+      case 22: return TEXTURES.hospitalTile; // HOSPITAL_BED — sterile white
       default: return TEXTURES.wallpaper;
     }
   }
@@ -316,11 +346,9 @@ export class Renderer {
           const color = this._spritePixel(s, texX, texY);
           if ((color >>> 24) < 128) continue; // transparent
 
-          let r3 = (color & 0xFF) * bright;
-          let g3 = ((color >> 8) & 0xFF) * bright;
-          let b3 = ((color >> 16) & 0xFF) * bright;
-          if (this.emergencyMode) { r3 = Math.min(255, r3 * 1.3 + 20); g3 *= 0.3; b3 *= 0.3; }
-
+          const r3 = (color & 0xFF) * bright;
+          const g3 = ((color >> 8) & 0xFF) * bright;
+          const b3 = ((color >> 16) & 0xFF) * bright;
           this.buf32[sy * SCREEN_W + sx] = (255 << 24) | ((b3 | 0) << 16) | ((g3 | 0) << 8) | (r3 | 0);
         }
       }
@@ -364,86 +392,200 @@ export class Renderer {
 
   _entityPixel(entity, tx, ty) {
     const type = entity.type || 'stalker';
+    const isChasing = entity.state === 'chase' || entity.state === 'attack';
+    const t = this._time;
 
-    // ── SMILER: just two glowing eyes + wide grin ──────────────────────────
+    // ── SMILER ──────────────────────────────────────────────────────────────
     if (type === 'smiler') {
-      const eyeL = Math.abs(tx - 22) < 4 && ty >= 18 && ty <= 22;
-      const eyeR = Math.abs(tx - 42) < 4 && ty >= 18 && ty <= 22;
-      if (eyeL || eyeR) return (0xFFFFFFFF); // glowing white eyes
-      // Grin — curved smile
-      const grinY = 32 + Math.abs(tx - 32) * 0.25;
-      if (ty >= grinY && ty <= grinY + 3 && tx > 16 && tx < 48) return (0xFFFFFFFF);
+      const cx = tx - 32;
+      // Pulsing wide-apart eyes
+      const eyePulse = 0.7 + 0.3 * Math.sin(t * 4 + (isChasing ? 8 : 0));
+      const eyeLX = tx - 17, eyeRX = tx - 47;
+      if (Math.abs(eyeLX) < 6 && ty >= 14 && ty <= 24) {
+        const v = (210 * eyePulse) | 0;
+        return (0xFF << 24) | (v << 16) | (v << 8) | v;
+      }
+      if (Math.abs(eyeRX) < 6 && ty >= 14 && ty <= 24) {
+        const v = (210 * eyePulse) | 0;
+        return (0xFF << 24) | (v << 16) | (v << 8) | v;
+      }
+      // Wide toothy grin
+      const grinY = 34 + Math.pow(Math.abs(cx) / 18, 2) * 14;
+      if (ty >= grinY && ty <= grinY + 6 && tx >= 8 && tx <= 56) {
+        const tooth = Math.floor((tx - 8) / 3) % 2;
+        if (tooth === 0) return 0xFFFFFFFF; // white tooth
+        return (0x80 << 24) | 0x101010; // dark gap between teeth
+      }
+      // Ghost face outline
+      const faceR = Math.sqrt(cx * cx * 0.7 + (ty - 28) * (ty - 28));
+      if (faceR > 26 && faceR < 30 && ty < 52) return (0x35 << 24) | 0x181818;
       return 0;
     }
 
-    // ── PARTYGOER: tall yellow figure ─────────────────────────────────────
+    // ── PARTYGOER ────────────────────────────────────────────────────────────
     if (type === 'partygoer') {
-      const cx = Math.abs(tx - 32), cy = ty;
-      if (cy < 10 && cx < 12) return 0xFF00DDFF; // yellow head (ABGR)
-      // Carved bloody smile
-      if (cy >= 5 && cy <= 7 && tx > 20 && tx < 44) return 0xFF2020CC; // red smile
-      // Long arms
-      if (cy >= 10 && cy <= 28 && cx >= 12 && cx < 28) return 0xFF00DDFF;
-      // Body
-      if (cy >= 10 && cy <= 50 && cx < 12) return 0xFF00DDFF;
+      const cx = tx - 32;
+      // Big round head
+      const headDist = Math.sqrt(cx * cx * 0.9 + (ty - 10) * (ty - 10));
+      if (headDist < 13) {
+        const edgeShade = headDist > 10 ? 0x00AABB : 0x00CCDD;
+        return (0xFF << 24) | edgeShade; // R=0xDD/0xBB, G=0xCC/0xAA, B=0x00 → yellow-orange
+      }
+      // Black pit eyes
+      if (ty >= 6 && ty <= 10 && (Math.abs(tx - 27) < 3 || Math.abs(tx - 37) < 3)) return 0xFF000000;
+      // Carved bloody smile — jagged
+      const smileArc = (ty - 16) - Math.abs(cx) * 0.6;
+      if (smileArc >= 0 && smileArc <= 2 && Math.abs(cx) < 9) {
+        return 0xFF0000AA; // R=0xAA, G=0x00, B=0x00 → dark red
+      }
+      // Long stringy neck
+      if (ty >= 24 && ty <= 32 && Math.abs(cx) < 4) return (0xFF << 24) | 0x00AACC;
+      // Distorted tall body
+      const bodyW = 8 + (ty - 32) * 0.15;
+      if (ty >= 32 && ty <= 56 && Math.abs(cx) < bodyW) {
+        const stripe = ((ty / 4 | 0) % 2 === 0) ? 0x009AAA : 0x007788;
+        return (0xFF << 24) | stripe;
+      }
+      // Long dangling arms
+      if (ty >= 26 && ty <= 54 && Math.abs(cx) >= 12 && Math.abs(cx) < 26) {
+        return (0xFF << 24) | 0x00BBCC;
+      }
       // Legs
-      if (cy >= 50 && cy <= 64 && (Math.abs(tx - 26) < 7 || Math.abs(tx - 38) < 7)) return 0xFF00DDFF;
+      if (ty >= 56 && ty <= 64 && (Math.abs(tx - 27) < 5 || Math.abs(tx - 37) < 5)) {
+        return (0xFF << 24) | 0x007788;
+      }
       return 0;
     }
 
-    // ── DEATHMOTH: large moth wings ───────────────────────────────────────
+    // ── HOUND ───────────────────────────────────────────────────────────────
+    if (type === 'hound') {
+      const cx = tx - 32, cy = ty - 36;
+      // Body shadow — low-slung and elongated
+      if (Math.abs(cy) < 9 && Math.abs(cx) < 24) {
+        const shade = cx > 0 ? 0x060606 : 0x101010;
+        return (0xFF << 24) | shade;
+      }
+      // Head protruding forward
+      if (cx >= 16 && cx <= 30 && cy >= -13 && cy <= 3) {
+        return (0xFF << 24) | 0x0B0B0B;
+      }
+      // Snout with visible teeth
+      if (cx >= 24 && cx <= 32 && cy >= -7 && cy <= 1) {
+        if (cy >= -2) {
+          const teeth = (tx % 3 < 2) ? 0xFFFFFFFF : (0xFF << 24 | 0x050505);
+          return teeth;
+        }
+        return (0xFF << 24) | 0x0E0E0E;
+      }
+      // Red glowing eyes
+      if (cx >= 18 && cx <= 28 && cy >= -10 && cy <= -6) {
+        if (isChasing) {
+          const ep = (0x80 + (Math.sin(t * 8) * 0x50 | 0));
+          return (0xFF << 24) | ep; // R component pulses red
+        }
+        return (0xFF << 24) | 0x202020;
+      }
+      // 4 chunky legs
+      for (const lx of [-14, -6, 6, 14]) {
+        if (Math.abs(cx - lx) < 4 && cy >= 8 && cy <= 22) return (0xFF << 24) | 0x090909;
+      }
+      // Tail (up-curved)
+      if (cx < -20 && Math.abs(cy + (cx + 20) * 0.4) < 3) return (0xFF << 24) | 0x0A0A0A;
+      return 0;
+    }
+
+    // ── FACELING ────────────────────────────────────────────────────────────
+    if (type === 'faceling') {
+      const cx = tx - 32;
+      // Smooth oval head — no features, pale and wrong
+      const headD = Math.sqrt(cx * cx * 0.75 + (ty - 9) * (ty - 9));
+      if (headD < 11) {
+        const shade = headD > 8 ? 0xA0A0B8 : 0xB8B8CC;
+        return (0xFF << 24) | (shade << 16) | (shade << 8) | shade;
+      }
+      // Office suit body
+      if (ty >= 20 && ty <= 52 && Math.abs(cx) < 13) {
+        const suit = (Math.abs(cx) < 4 && ty > 26) ? 0xEEEEEE : 0x303048;
+        return (0xFF << 24) | suit;
+      }
+      // Arms
+      if (ty >= 22 && ty <= 44 && Math.abs(cx) >= 13 && Math.abs(cx) < 22) {
+        return (0xFF << 24) | 0x303048;
+      }
+      // Legs
+      if (ty >= 52 && ty <= 64 && (Math.abs(tx - 27) < 5 || Math.abs(tx - 37) < 5)) {
+        return (0xFF << 24) | 0x202035;
+      }
+      // Pale hands (uncanny)
+      if (ty >= 42 && ty <= 52 && Math.abs(cx) >= 13 && Math.abs(cx) < 19) {
+        return (0xFF << 24) | 0xA8A8C0;
+      }
+      return 0;
+    }
+
+    // ── DEATHMOTH ─────────────────────────────────────────────────────────
     if (type === 'deathmoth') {
       const cx = tx - 32, cy = ty - 32;
-      // Wings (elliptical shape each side)
-      const leftWing = (cx < 0 && cx > -28 && Math.abs(cy) < (20 - Math.abs(cx) * 0.5));
-      const rightWing = (cx > 0 && cx < 28 && Math.abs(cy) < (20 - cx * 0.5));
-      if (leftWing || rightWing) {
-        // Wing pattern
-        const wn = Math.abs(cx * cy) % 5 < 1;
-        return wn ? 0xFF303050 : 0xFF404060;
+      const flapCY = cy - (Math.sin(t * 5) * 4 | 0);
+      const lWing = cx < 0 && cx > -30 && Math.abs(flapCY) < (24 - Math.abs(cx) * 0.65);
+      const rWing = cx > 0 && cx < 30 && Math.abs(flapCY) < (24 - cx * 0.65);
+      if (lWing || rWing) {
+        const eyeSpot = Math.abs(cx) > 10 && Math.abs(cx) < 20 && Math.abs(flapCY) < 7;
+        if (eyeSpot) return (0xFF << 24) | 0x200040; // deep purple eye spot
+        const wPat = (Math.abs(cx) + Math.abs(flapCY)) % 5 < 2;
+        return (0xFF << 24) | (wPat ? 0x181828 : 0x282848);
       }
-      // Body
-      if (Math.abs(cx) < 4 && cy > -18 && cy < 18) return 0xFF303030;
-      return 0;
-    }
-
-    // ── FACELING: featureless humanoid ────────────────────────────────────
-    if (type === 'faceling') {
-      const cx = Math.abs(tx - 32), cy = ty;
-      if (cy < 8 && cx < 10) return 0xFFB8A898; // skin tone head, no features
-      if (cy >= 8 && cy <= 48 && cx < 13) return 0xFFC8B8A8;
-      if (cy >= 12 && cy <= 35 && cx >= 13 && cx < 20) return 0xFFC8B8A8;
-      if (cy >= 48 && cy <= 64 && (Math.abs(tx - 26) < 6 || Math.abs(tx - 38) < 6)) return 0xFFC8B8A8;
-      return 0;
-    }
-
-    // ── HOUND: dark quadruped ──────────────────────────────────────────────
-    if (type === 'hound') {
-      const cx = tx - 32, cy = ty - 32;
-      // Body (elongated horizontal)
-      if (Math.abs(cy) < 8 && Math.abs(cx) < 22) return 0xFF101010;
-      // Legs
-      const legPos = [-16, -8, 8, 16];
-      for (const lx of legPos) {
-        if (Math.abs(tx - 32 - lx) < 3 && cy > 5 && cy < 20) return 0xFF101010;
+      // Fuzzy body
+      if (Math.abs(cx) < 5 && cy > -22 && cy < 22) {
+        return (0xFF << 24) | (cy > 0 ? 0x0E0E1E : 0x161626);
       }
-      // Head
-      if (cx > 15 && cx < 28 && cy > -10 && cy < 4) return 0xFF101010;
-      // Glowing eyes when chasing
-      if ((entity.state === 'chase' || entity.state === 'attack') && cx > 18 && cx < 22 && cy > -8 && cy < -5) return 0xFF0000FF;
+      if (Math.abs(cx) < 2 && cy > -30 && cy < -20) return (0xFF << 24) | 0x181828;
       return 0;
     }
 
-    // ── DEFAULT: tall dark stalker ─────────────────────────────────────────
-    const cx = Math.abs(tx - 32), cy = ty;
-    if (cy < 8 && cx < 10) { if (cx < 8 && cy > 2) return 0xFF101010 | 0xFF000000; return 0; }
-    if (cy >= 3 && cy <= 5 && (Math.abs(tx - 24) < 3 || Math.abs(tx - 40) < 3)) {
-      const isChasing = entity.state === 'chase' || entity.state === 'attack';
-      return isChasing ? (0xFF0000FF | 0xFF000000) : (0xFF333333 | 0xFF000000);
+    // ── ANIMATIONS (dreamcore entity — flickering static humanoid) ─────────
+    if (type === 'animations') {
+      const cx = tx - 32;
+      const flicker = Math.sin(t * 18 + tx * 0.8 + ty * 0.5) > (isChasing ? -0.3 : 0.2);
+      if (!flicker) return 0;
+      const alpha = isChasing ? 0xFF : 0xCC;
+      const headD = Math.sqrt(cx * cx * 0.9 + (ty - 9) * (ty - 9));
+      if (headD < 9) {
+        const staticV = (Math.sin(t * 30 + tx * 5 + ty * 3) > 0) ? 0xFFFFFF : 0x888888;
+        return (alpha << 24) | staticV;
+      }
+      if (Math.abs(cx) < 11 && ty >= 18 && ty <= 52) {
+        const v = Math.sin(t * 25 + ty * 4) > 0 ? 0xDDDDFF : 0x666688;
+        return (alpha << 24) | v;
+      }
+      if (Math.abs(cx) >= 11 && Math.abs(cx) < 20 && ty >= 20 && ty <= 40) {
+        return (alpha << 24) | 0x888899;
+      }
+      return 0;
     }
-    if (cy >= 8 && cy <= 48 && cx < 14) return 0xFF0D0D0D | 0xFF000000;
-    if (cy >= 12 && cy <= 36 && cx >= 14 && cx < 22) return 0xFF0D0D0D | 0xFF000000;
-    if (cy >= 48 && cy <= 64 && (Math.abs(tx - 26) < 6 || Math.abs(tx - 38) < 6)) return 0xFF0D0D0D | 0xFF000000;
+
+    // ── DEFAULT STALKER ──────────────────────────────────────────────────────
+    const cx2 = tx - 32;
+    // Elongated distorted head
+    const headD2 = Math.sqrt(cx2 * cx2 * 0.6 + (ty - 8) * (ty - 8));
+    if (headD2 < 9) return (0xFF << 24) | 0x060606;
+    // Eyes — only when chasing
+    if (ty >= 5 && ty <= 8 && (Math.abs(tx - 24) < 3 || Math.abs(tx - 40) < 3)) {
+      return isChasing ? (0xFF << 24 | 0x0000CC) : (0xFF << 24 | 0x101010);
+    }
+    // Tall lanky body with visible ribs
+    if (ty >= 18 && ty <= 54 && Math.abs(cx2) < 14) {
+      const rib = (ty % 6 < 2) && Math.abs(cx2) > 8;
+      return (0xFF << 24) | (rib ? 0x181818 : 0x080808);
+    }
+    // Stretched arms
+    if (ty >= 20 && ty <= 36 && Math.abs(cx2) >= 14 && Math.abs(cx2) < 26) {
+      return (0xFF << 24) | 0x070707;
+    }
+    // Spindly legs
+    if (ty >= 54 && ty <= 64 && (Math.abs(tx - 26) < 5 || Math.abs(tx - 38) < 5)) {
+      return (0xFF << 24) | 0x080808;
+    }
     return 0;
   }
 
@@ -595,96 +737,147 @@ export class Renderer {
   _renderWeapon(buf, player) {
     const W = SCREEN_W, H = SCREEN_H;
     const bobAmt = player.bobAmt || 0;
-    const bobX = Math.sin(this._weaponBobT * 2) * 5 * bobAmt;
-    const bobY = Math.abs(Math.cos(this._weaponBobT)) * 7 * bobAmt;
-    const swingOff = this._weaponSwingT > 0 ? -(1 - (1 - this._weaponSwingT) * (1 - this._weaponSwingT)) * 35 : 0;
-
-    // Center X, bottom of screen with bob
-    const baseX = (W / 2 - 32 + bobX) | 0;
-    const baseY = (H - 88 + bobY + swingOff) | 0;
+    const bobX = Math.sin(this._weaponBobT * 2) * 7 * bobAmt;
+    const bobY = Math.abs(Math.cos(this._weaponBobT)) * 10 * bobAmt;
+    // Swing animation: weapon swings UP then comes back (1.0 → 0.0)
+    const swingOff = this._weaponSwingT > 0 ? -(Math.sin(this._weaponSwingT * Math.PI)) * 50 : 0;
+    // Offset weapon to bottom-right (more natural first-person position)
+    const baseX = (W * 0.55 - 48 + bobX) | 0;
+    const baseY = (H - 100 + bobY + swingOff) | 0;
 
     const weapon = this._game?.inventory?.equippedWeapon || this._game?.inventory?.getSelected()?.type || 'flashlight';
     this._blitWeapon(buf, weapon, baseX, baseY, W, H);
   }
 
   _blitWeapon(buf, weapon, bx, by, W, H) {
-    // Draw a 64×88 weapon sprite procedurally pixel by pixel
-    for (let wy = 0; wy < 88; wy++) {
+    for (let wy = 0; wy < 130; wy++) {
       const sy = by + wy;
       if (sy < 0 || sy >= H) continue;
-      for (let wx = 0; wx < 64; wx++) {
+      for (let wx = 0; wx < 96; wx++) {
         const sx = bx + wx;
         if (sx < 0 || sx >= W) continue;
         const col = this._weaponPixel(weapon, wx, wy);
-        if ((col >>> 24) < 8) continue; // transparent
+        if ((col >>> 24) < 16) continue;
         buf[sy * W + sx] = col;
       }
     }
   }
 
   _weaponPixel(weapon, wx, wy) {
-    const cx = wx - 32; // -32 to +31 center
-    const alpha = 0xFF << 24;
+    const cx = wx - 48; // center of 96px sprite
+    const A = 0xFF000000;
 
     if (weapon === 'flashlight' || weapon === 'flashlight_heavy') {
-      // Flashlight: grey cylinder barrel, darker grip at bottom
-      const body = Math.abs(cx) < 7 && wy >= 10 && wy < 60;
-      const lens = Math.abs(cx) < 9 && wy < 12;
-      const grip = Math.abs(cx) < 5 && wy >= 58 && wy < 88;
-      const light_ring = Math.abs(cx) < 9 && wy >= 6 && wy < 14 && Math.abs(cx) > 6;
-      if (lens && wy < 8) return alpha | (0xDDDDFF); // lens glow
-      if (lens) return alpha | (0xBBBBCC);
-      if (light_ring) return alpha | (0x888899);
-      if (body) {
-        const shade = cx > 0 ? 0x888888 : (cx < -3 ? 0xAAAAAA : 0x999999);
-        return alpha | shade;
+      // Big Maglite-style torch — metallic grey cylinder
+      const inBody = Math.abs(cx + 4) < 14 && wy >= 5 && wy < 80;
+      const inLens = Math.abs(cx + 4) < 18 && wy >= 0 && wy < 12;
+      const inGrip = Math.abs(cx + 4) < 10 && wy >= 78 && wy < 130;
+      const inRing = Math.abs(cx + 4) < 18 && wy >= 8 && wy < 16 && Math.abs(cx + 4) > 13;
+      const inBezel = Math.abs(cx + 4) < 16 && wy >= 0 && wy < 6;
+      if (inBezel) {
+        // Bright lens glow when on
+        const glowT = this._game?.player?.flashlightOn ? 1 : 0.2;
+        const lensG = (220 * glowT) | 0, lensB = (180 * glowT) | 0;
+        return A | (lensB << 16) | (lensG << 8) | 255; // bright yellow-white
       }
-      if (grip) {
-        const gshade = cx > 0 ? 0x332222 : 0x443333;
-        return alpha | gshade;
+      if (inLens) return A | (0x60 << 16) | (0x80 << 8) | 0xBB; // blue-grey lens
+      if (inRing) return A | (0x44 << 16) | (0x44 << 8) | 0x55; // dark ring
+      if (inBody) {
+        const shade = cx + 4 > 6 ? 0x606060 : (cx + 4 < -6 ? 0x909090 : 0x777777);
+        const ridgeX = ((wy / 8) | 0) % 2 === 0 ? 5 : 0;
+        return A | (shade << 16) | ((shade + ridgeX) << 8) | (shade + ridgeX * 2);
+      }
+      if (inGrip) {
+        const g = 0x222222;
+        return A | (g << 16) | (g << 8) | (g + 0x10);
       }
       return 0;
     }
 
-    if (weapon === 'pipe' || weapon === 'fire_axe') {
-      // Pipe/melee: brown wooden grip, darker metal top
-      const handle = Math.abs(cx) < 5 && wy >= 30 && wy < 88;
-      const metal = Math.abs(cx) < 6 && wy < 32;
-      if (metal) {
-        if (weapon === 'fire_axe' && wy < 20 && cx > 0) {
-          // Axe blade extends to the right
-          if (cx > 4 && cx < 18 && wy > 5 && wy < 20) return alpha | 0x4444AA;
-        }
-        return alpha | (cx > 0 ? 0x666677 : 0x888899);
+    if (weapon === 'pipe') {
+      const inPipe = Math.abs(cx + 8) < 11 && wy >= 0 && wy < 110;
+      const inEnd = Math.abs(cx + 8) < 13 && wy >= 0 && wy < 8;
+      if (inEnd) return A | (0x99 << 16) | (0x99 << 8) | 0xAA; // pipe end cap
+      if (inPipe) {
+        const shade = cx + 8 > 4 ? 0x505060 : (cx + 8 < -4 ? 0x808090 : 0x686878);
+        // Rust spots
+        const rust = Math.sin((wy * 7.3 + cx * 3.1)) > 0.7 ? 0x201010 : 0;
+        return A | ((shade - rust + (0x60 << 16)) | 0);
       }
-      if (handle) {
-        const wrap = ((wy / 6) | 0) % 2 === 0 ? 0x553311 : 0x442200;
-        return alpha | wrap;
+      return 0;
+    }
+
+    if (weapon === 'fire_axe') {
+      // Handle (lower)
+      const inHandle = Math.abs(cx + 10) < 8 && wy >= 40 && wy < 130;
+      // Axe head — blade to the left
+      const bx2 = cx + 10;
+      const inBlade = bx2 < -8 && bx2 > -42 && wy >= 5 && wy < 45;
+      const inSpike = bx2 > 5 && bx2 < 20 && wy >= 15 && wy < 30;
+      const inPoll = Math.abs(bx2) < 9 && wy >= 10 && wy < 50;
+      if (inBlade) {
+        // Metallic red/silver axe blade
+        const edgeDist = Math.abs(wy - 25) / 20;
+        const bladeR = (180 + edgeDist * 40) | 0;
+        return A | (0x30 << 16) | (0x20 << 8) | bladeR;
+      }
+      if (inSpike) return A | (0x60 << 16) | (0x60 << 8) | 0x90;
+      if (inPoll) return A | (0x55 << 16) | (0x55 << 8) | 0x70;
+      if (inHandle) {
+        const grain = ((wy % 8) < 2) ? 0x442200 : 0x553311;
+        return A | grain;
       }
       return 0;
     }
 
     if (weapon === 'key') {
-      // Key: gold shaft, bow at top
-      const shaft = Math.abs(cx) < 3 && wy >= 20 && wy < 70;
-      const bow = Math.sqrt(cx * cx + (wy - 15) * (wy - 15)) < 10 && wy < 25;
-      const bowHole = Math.sqrt(cx * cx + (wy - 15) * (wy - 15)) < 5;
-      const teeth = (wy >= 60 && wy < 72) && (cx > 2 && cx < 8) && ((wy - 60) % 6 < 3);
-      if (bow && !bowHole) return alpha | 0x20C0D0;
-      if (shaft) return alpha | 0x30B0C0;
-      if (teeth) return alpha | 0x20A0B0;
+      // Large gold key — shaft going down, bow at top-left
+      const shaftCX = cx + 20;
+      const inShaft = Math.abs(shaftCX) < 6 && wy >= 30 && wy < 110;
+      const bowDist = Math.sqrt((cx + 30) * (cx + 30) + (wy - 25) * (wy - 25));
+      const inBow = bowDist < 22 && bowDist > 12 && wy < 50;
+      const inBowFill = bowDist < 12 && wy < 50;
+      const inTeeth = shaftCX > 6 && shaftCX < 20 && wy >= 85 && wy < 110 && ((wy / 8 | 0) % 2 === 0);
+      if (inBow) return A | (0x10 << 16) | (0xC0 << 8) | 0xFF; // gold
+      if (inBowFill) return A | (0x08 << 16) | (0x80 << 8) | 0xCC; // dark gold hole
+      if (inShaft) return A | (0x10 << 16) | (0xB8 << 8) | 0xFF;
+      if (inTeeth) return A | (0x10 << 16) | (0xC0 << 8) | 0xFF;
       return 0;
     }
 
-    // Default: fist/hand
-    const fist = Math.abs(cx) < 14 && wy >= 20 && wy < 60;
-    const fingers = Math.abs(cx) < 12 && wy >= 10 && wy < 22;
-    if (fist) {
-      const knuckle = (wy === 20 || wy === 21) && Math.abs(cx) < 11;
-      return alpha | (knuckle ? 0xC0A888 : 0xB09878);
-    }
-    if (fingers) return alpha | 0xB09878;
+    // Default: fist/unarmed
+    const fistCX = cx + 5;
+    const inFist = Math.abs(fistCX) < 22 && wy >= 15 && wy < 65;
+    const inFingers = Math.abs(fistCX) < 20 && wy >= 0 && wy < 20;
+    const knuckle = (wy >= 14 && wy <= 18) && Math.abs(fistCX) < 18;
+    if (knuckle) return A | (0x70 << 16) | (0x88 << 8) | 0xA8;
+    if (inFist) return A | (0x68 << 16) | (0x80 << 8) | 0xA0;
+    if (inFingers) return A | (0x68 << 16) | (0x80 << 8) | 0xA0;
     return 0;
+  }
+
+  // ── EMERGENCY RED BORDER (replaces full red tint) ─────────────────────────
+  _renderEmergencyVignette() {
+    if (!this.emergencyMode) return;
+    const pulse = 0.55 + 0.45 * Math.sin(this._time * 7);
+    const edgeW = 55;
+    for (let y2 = 0; y2 < SCREEN_H; y2++) {
+      for (let x2 = 0; x2 < SCREEN_W; x2++) {
+        const edgeDist = Math.min(x2, SCREEN_W - 1 - x2, y2, SCREEN_H - 1 - y2);
+        if (edgeDist >= edgeW) continue;
+        const fade = Math.pow(1 - edgeDist / edgeW, 2) * pulse;
+        if (fade < 0.01) continue;
+        const i = y2 * SCREEN_W + x2;
+        const p = this.buf32[i];
+        const pr = p & 0xFF;
+        const pg = (p >> 8) & 0xFF;
+        const pb = (p >> 16) & 0xFF;
+        const nr = Math.min(255, pr + 220 * fade);
+        const ng = pg * (1 - fade * 0.85);
+        const nb = pb * (1 - fade * 0.9);
+        this.buf32[i] = (255 << 24) | ((nb | 0) << 16) | ((ng | 0) << 8) | (nr | 0);
+      }
+    }
   }
 
   // ── VIGNETTE ──────────────────────────────────────────────────────────────

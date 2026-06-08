@@ -242,16 +242,16 @@ export const texBrickRed = makeTex((x, y) => {
   );
 });
 
-// ── POOL FLOOR (light blue-white shimmer) ─────────────────────────────────────
+// ── POOL FLOOR (deep blue-teal water with caustic light patterns) ─────────────
 export const texPoolFloor = makeTex((x, y) => {
-  const grout = (x % 16 < 2) || (y % 16 < 2);
-  if (grout) return rgba(195, 210, 220);
-  const n = smoothNoise(x * 0.2, y * 0.2, 40) * 12;
-  const ripple = Math.sin(x * 0.3 + n * 0.5) * Math.cos(y * 0.25 + n * 0.4) * 6;
+  // Deep water — rich blue-teal with light caustic ripples
+  const caustic = smoothNoise(x * 0.18, y * 0.18, 40) * 0.6 + smoothNoise(x * 0.42, y * 0.42, 41) * 0.4;
+  const ripple = Math.sin(x * 0.5 + caustic * 4) * Math.cos(y * 0.4 + caustic * 3) * 18;
+  const depth = smoothNoise(x * 0.08, y * 0.08, 42);
   return rgba(
-    Math.min(255, 195 + n + ripple),
-    Math.min(255, 218 + n + ripple),
-    Math.min(255, 244 + n)
+    Math.max(0, Math.min(255, 40 + ripple * 0.4 + depth * 15)),   // R: low (deep blue)
+    Math.max(0, Math.min(255, 140 + ripple + depth * 25)),          // G: medium
+    Math.max(0, Math.min(255, 200 + ripple * 0.8 + depth * 20))    // B: high (water blue)
   );
 });
 
@@ -289,23 +289,34 @@ export const texDarkTile = makeTex((x, y) => {
 
 // ── GRASS FLOOR (outdoor) ─────────────────────────────────────────────────────
 export const texGrass = makeTex((x, y) => {
-  const n = smoothNoise(x * 0.35, y * 0.35, 60) * 0.35 + smoothNoise(x * 1.2, y * 1.2, 61) * 0.12;
-  const g = Math.min(255, (90 + n * 70) | 0);
-  const r = Math.min(255, (22 + n * 18) | 0);
-  const b = Math.min(255, (18 + n * 12) | 0);
-  const patch = smoothNoise(x * 0.1, y * 0.1, 62) > 0.62 ? 0.78 : 1;
-  // Occasional flower dots
-  const flower = noise(x, y, 63) > 0.96;
-  if (flower) return rgba(255, 240, 60);
-  return rgba((r * patch) | 0, (g * patch) | 0, (b * patch) | 0);
+  // Rich vibrant dreamcore grass — varying height/density patches
+  const base = smoothNoise(x * 0.22, y * 0.22, 60);
+  const detail = smoothNoise(x * 0.9, y * 0.9, 61) * 0.3;
+  const patch = smoothNoise(x * 0.07, y * 0.07, 62); // large patches darker/lighter
+  const blade = noise(x, y, 63) > 0.78; // individual blade lines
+  if (blade && base > 0.4) return rgba(20, (95 + patch * 40) | 0, 15); // darker blade
+  const g = Math.min(255, (78 + base * 80 + detail * 30 + patch * 25) | 0);
+  const r = Math.min(255, (12 + base * 22 + patch * 15) | 0);
+  const b = Math.min(255, (8 + base * 14) | 0);
+  // Flower dots — white, yellow, pink
+  const flowerRng = noise(x, y, 64);
+  if (flowerRng > 0.975) return rgba(255, 255, 255); // white
+  if (flowerRng > 0.968) return rgba(255, 230, 40);  // yellow
+  if (flowerRng > 0.962) return rgba(255, 160, 200); // pink
+  return rgba(r, g, b);
 });
 
 // ── HOSPITAL TILE (bright sterile white) ─────────────────────────────────────
 export const texHospitalTile = makeTex((x, y) => {
-  const grout = (x % 16 === 0) || (y % 16 === 0);
-  if (grout) return rgba(175, 178, 182);
-  const n = smoothNoise(x * 0.5, y * 0.5, 64) * 10;
-  return rgba(Math.min(255, (232 + n * 0.4) | 0), Math.min(255, (235 + n * 0.4) | 0), Math.min(255, (238 + n * 0.4) | 0));
+  // Classic hospital: pale mint-green tiles with grey grout, stain marks
+  const grout = (x % 16 === 0) || (y % 16 === 0) || (x % 16 === 1) || (y % 16 === 1);
+  if (grout) return rgba(155, 162, 158);
+  const stain = smoothNoise(x * 0.08, y * 0.08, 65) > 0.72 ? 0.88 : 1.0;
+  const n = smoothNoise(x * 0.6, y * 0.6, 64) * 8;
+  const r = Math.min(255, ((200 + n * 0.3) * stain) | 0);
+  const g = Math.min(255, ((218 + n * 0.4) * stain) | 0);
+  const b = Math.min(255, ((208 + n * 0.3) * stain) | 0);
+  return rgba(r, g, b); // mint-green tint
 });
 
 // ── ROAD ASPHALT ──────────────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ import { WorldItem, Inventory, ITEMS } from './items.js';
 import { EffectsSystem } from './effects.js';
 import { UI } from './ui.js';
 import { TouchControls, detectMobile } from './touch.js';
+import { TEXTURES } from './textures.js';
 
 const STATES = {
   MENU: 'menu',
@@ -524,6 +525,7 @@ export class Game {
     this.renderer.fogColorB = cfg.fogColorB || 0;
     this.renderer.floorTexName = cfg.floorTexName || 'carpet';
     this.renderer._skyConfig = cfg.skyKey ? this.renderer._SKY_CONFIGS?.[cfg.skyKey] : null;
+    this.renderer.themeWallTex = cfg.wallTexName ? (TEXTURES[cfg.wallTexName] || null) : null;
 
     // Audio — level ambient profile
     this.audio.setLevelAmbient(cfg.ambientProfile || 'default');

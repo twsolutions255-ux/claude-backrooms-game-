@@ -1,6 +1,6 @@
 // Map system — tile grid + collision + lighting + minimap
-export const MAP_W = 64;
-export const MAP_H = 64;
+export const MAP_W = 80;
+export const MAP_H = 80;
 
 // Tile IDs
 export const T = {
