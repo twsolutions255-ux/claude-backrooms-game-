@@ -163,11 +163,12 @@ const LEVEL_THEMES = {
 };
 
 function getTheme(level) {
-  if (level <= 2) return LEVEL_THEMES.lobby;
-  if (level <= 4) return LEVEL_THEMES.warehouse;
+  // Canonical level mappings
+  if (level <= 2)  return LEVEL_THEMES.lobby;
+  if (level <= 4)  return LEVEL_THEMES.warehouse;
   if (level === 5) return LEVEL_THEMES.pipes;
-  if (level <= 7) return LEVEL_THEMES.electrical;
-  if (level <= 9) return LEVEL_THEMES.office;
+  if (level <= 7)  return LEVEL_THEMES.electrical;
+  if (level <= 9)  return LEVEL_THEMES.office;
   if (level <= 11) return LEVEL_THEMES.suburbs;
   if (level <= 13) return LEVEL_THEMES.city;
   if (level <= 15) return LEVEL_THEMES.mall;
@@ -175,7 +176,20 @@ function getTheme(level) {
   if (level <= 19) return LEVEL_THEMES.dreamcore;
   if (level === 20) return LEVEL_THEMES.party;
   if (level === 21) return LEVEL_THEMES.hospital;
-  return LEVEL_THEMES.party;
+  // Named high-level canon entries
+  if (level === 94) return LEVEL_THEMES.dreamcore;   // The Promised Land
+  if (level === 33) return LEVEL_THEMES.city;
+  if (level === 37) return LEVEL_THEMES.poolrooms;
+  if (level === 52) return LEVEL_THEMES.party;
+  if (level === 11) return LEVEL_THEMES.suburbs;
+  // Default: cycle through themes so every level is playable
+  const cycle = [
+    LEVEL_THEMES.lobby, LEVEL_THEMES.warehouse, LEVEL_THEMES.pipes,
+    LEVEL_THEMES.electrical, LEVEL_THEMES.office, LEVEL_THEMES.suburbs,
+    LEVEL_THEMES.city, LEVEL_THEMES.poolrooms, LEVEL_THEMES.dreamcore,
+    LEVEL_THEMES.party, LEVEL_THEMES.hospital, LEVEL_THEMES.mall,
+  ];
+  return cycle[level % cycle.length];
 }
 
 // ── LOBBY ROOM TEMPLATES ─────────────────────────────────────────────────────

@@ -258,9 +258,9 @@ export class Game {
 
   _applyQuality(quality) {
     const presets = {
-      low:    { numRays: 160 },
-      medium: { numRays: 240 },
-      high:   { numRays: 320 },
+      low:    { numRays: 160 },  // colStep=4 (4px per ray)
+      medium: { numRays: 320 },  // colStep=2 (2px per ray)
+      high:   { numRays: 640 },  // colStep=1 (1px per ray, crispest)
     };
     const p = presets[quality] || presets.medium;
     if (this.renderer) this.renderer.numRays = p.numRays;

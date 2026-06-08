@@ -214,7 +214,7 @@ export class Renderer {
       // Light at hit point
       const hitWX = px + perpDist * rayDirX, hitWY = py + perpDist * rayDirY;
       const tileLight = map.getLightAt(hitWX, hitWY);
-      const flLight = this.flashlightBrightness(col / NUM_RAYS, perpDist);
+      const flLight = this.flashlightBrightness(col * colStep, perpDist);
       const totalLight = Math.min(1.0, tileLight + flLight);
 
       const screenCol0 = col * colStep | 0;
