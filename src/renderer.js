@@ -122,7 +122,7 @@ export class Renderer {
       let floorY = py + rowDist * rayDirY0;
 
       const fog = Math.min(1, rowDist * this.fogDensity * 1.5);
-      const bright = Math.max(0, (1 - fog) * this.brightness);
+      const bright = Math.max(0, (1 - fog) * this.ambientLight * this.brightness);
 
       for (let x = 0; x < SCREEN_W; x++) {
         const mapFX = Math.floor(floorX), mapFY = Math.floor(floorY);
@@ -235,9 +235,9 @@ export class Renderer {
           // Side darkening
           if (side === 1) { r2 >>= 1; g2 >>= 1; b2 >>= 1; }
 
-          // Fog + light
+          // Fog + light — use at least ambientLight so walls visible without flashlight
           const fog = Math.min(1, perpDist * this.fogDensity);
-          const bright = Math.max(0, (1 - fog) * totalLight * this.brightness);
+          const bright = Math.max(0, (1 - fog) * Math.max(this.ambientLight, totalLight) * this.brightness);
           const fr2 = r2 * bright, fg2 = g2 * bright, fb2 = b2 * bright;
           buf[y2 * SCREEN_W + screenCol] = (255 << 24) | ((fb2 | 0) << 16) | ((fg2 | 0) << 8) | (fr2 | 0);
         }
