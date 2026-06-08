@@ -143,6 +143,17 @@
                 <div class="opt-row opt-mobile-only"><label>LOOK SENSITIVITY</label><input type="range" id="opt-touch-sens" min="1" max="20" value="8"></div>
                 <div class="opt-row"><label>VHS EFFECTS</label><input type="checkbox" id="opt-vhs" checked></div>
                 <div class="opt-row"><label>FOG DENSITY</label><input type="range" id="opt-fog" min="1" max="10" value="5"></div>
+                <div class="opt-divider"></div>
+                <div class="opt-row opt-pc-only"><label>FIELD OF VIEW</label><input type="range" id="opt-fov" min="55" max="100" value="73"><span id="opt-fov-val" class="opt-val">73°</span></div>
+                <div class="opt-row opt-mobile-only"><label>FIELD OF VIEW</label><input type="range" id="opt-fov-m" min="55" max="90" value="66"><span id="opt-fov-val-m" class="opt-val">66°</span></div>
+                <div class="opt-row">
+                    <label>RENDER QUALITY</label>
+                    <select id="opt-quality">
+                        <option value="low">LOW (battery saver)</option>
+                        <option value="medium" selected>MEDIUM</option>
+                        <option value="high">HIGH (PC recommended)</option>
+                    </select>
+                </div>
                 <button id="btn-close-opts" class="mbtn">CLOSE</button>
             </div>
         </div>

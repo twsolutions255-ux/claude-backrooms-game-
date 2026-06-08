@@ -1,11 +1,10 @@
 // Raycaster renderer — DDA algorithm, floor/ceiling casting, sprite rendering
-import { T, MAP_W } from './map.js';
+import { T } from './map.js';
 import { TEXTURES, TEX_SIZE, sampleTex, SKY_CONFIGS } from './textures.js';
 
 const SCREEN_W = 640;
 const SCREEN_H = 360;
 const HALF_H = SCREEN_H >> 1;
-const NUM_RAYS = 320; // cast 320 rays, each covers 2 columns
 
 export class Renderer {
   constructor(canvas) {
@@ -30,13 +29,14 @@ export class Renderer {
     this.fogColorG = 0;
     this.fogColorB = 0;
     this._sprites = [];
-    this._skyConfig = null;         // set per-level for outdoor sky
-    this._SKY_CONFIGS = SKY_CONFIGS; // expose for game.js
-    this._weaponSwingT = 0;         // 1→0, attack animation
-    this._weaponBobT = 0;           // accumulates with movement
-    this._game = null;              // set by game.js
-    this._time = 0;                 // running time for animations
-    this.themeWallTex = null;       // per-level wall texture override
+    this._skyConfig = null;
+    this._SKY_CONFIGS = SKY_CONFIGS;
+    this._weaponSwingT = 0;
+    this._weaponBobT = 0;
+    this._game = null;
+    this._time = 0;
+    this.themeWallTex = null;
+    this.numRays = 320;             // quality: 160=low, 320=medium, 480=high
   }
 
   // ── SET PIXEL ──────────────────────────────────────────────────────────────
@@ -126,13 +126,12 @@ export class Renderer {
 
       for (let x = 0; x < SCREEN_W; x++) {
         const mapFX = Math.floor(floorX), mapFY = Math.floor(floorY);
-        const floorType = map.floor ? map.floor[mapFX + mapFY * MAP_W] : 0;
+        const floorType = map.floor ? map.floor[mapFX + mapFY * map.w] : 0;
         const tileTex = this._getFloorTexForTile(floorType);
         const floorTex = tileTex || defaultFloorTex;
 
         let ftx, fty;
         if (isWater && !tileTex) {
-          // Animated water ripple distortion
           const wave = Math.sin(floorX * 2.5 + t * 2.8) * 1.8 + Math.cos(floorY * 2.2 + t * 2.1) * 1.5;
           ftx = ((((floorX * TEX_SIZE | 0) + (wave | 0)) % TEX_SIZE) + TEX_SIZE) % TEX_SIZE;
           fty = ((((floorY * TEX_SIZE | 0) + ((wave * 0.5) | 0)) % TEX_SIZE) + TEX_SIZE) % TEX_SIZE;
@@ -141,16 +140,14 @@ export class Renderer {
           fty = ((floorY * TEX_SIZE | 0) % TEX_SIZE + TEX_SIZE) % TEX_SIZE;
         }
 
-        // Floor pixel
         const fp = floorTex[fty * TEX_SIZE + ftx];
         const frBase = (fp & 0xFF) * bright + this.fogColorR * fog * 200;
         const fgBase = ((fp >> 8) & 0xFF) * bright + this.fogColorG * fog * 200;
         const fbBase = ((fp >> 16) & 0xFF) * bright + this.fogColorB * fog * 200;
         buf[y * SCREEN_W + x] = (255 << 24) | ((fbBase | 0) << 16) | ((fgBase | 0) << 8) | (frBase | 0);
 
-        // Ceiling pixel (mirrored y)
         const cy2 = SCREEN_H - y - 1;
-        const ceilType = map.ceiling ? (map.ceiling[mapFX + mapFY * MAP_W] ?? 0) : 0;
+        const ceilType = map.ceiling ? (map.ceiling[mapFX + mapFY * map.w] ?? 0) : 0;
         if (ceilType === 2 && this._skyConfig) {
           const skyT = cy2 / HALF_H;
           const sky = this._skyConfig;
@@ -176,8 +173,10 @@ export class Renderer {
     for (let x = 0; x < SCREEN_W; x++) buf[HALF_H * SCREEN_W + x] = (255 << 24) | 0x0a0905;
 
     // ── WALL CASTING ─────────────────────────────────────────────────────────
-    for (let col = 0; col < NUM_RAYS; col++) {
-      const cameraX = 2 * col / NUM_RAYS - 1;
+    const numRays = this.numRays;
+    const colStep = SCREEN_W / numRays; // columns per ray (2 for 320 rays, 4 for 160, etc.)
+    for (let col = 0; col < numRays; col++) {
+      const cameraX = 2 * col / numRays - 1;
       const rayDirX = dirX + planeX * cameraX;
       const rayDirY = dirY + planeY * cameraX;
 
@@ -192,7 +191,8 @@ export class Renderer {
 
       let hit = false, side = 0;
       let tile = 0;
-      for (let i = 0; i < 120 && !hit; i++) {
+      const rayLimit = (map.w > 80) ? 240 : 140;
+      for (let i = 0; i < rayLimit && !hit; i++) {
         if (sideX < sideY) { sideX += deltaX; mapX += stepX2; side = 0; }
         else { sideY += deltaY; mapY += stepY2; side = 1; }
         tile = map.get(mapX, mapY);
@@ -217,9 +217,10 @@ export class Renderer {
       const flLight = this.flashlightBrightness(col / NUM_RAYS, perpDist);
       const totalLight = Math.min(1.0, tileLight + flLight);
 
-      const screenCol0 = col * 2;
-      for (let sc = 0; sc < 2; sc++) {
+      const screenCol0 = col * colStep | 0;
+      for (let sc = 0; sc < colStep; sc++) {
         const screenCol = screenCol0 + sc;
+        if (screenCol >= SCREEN_W) break;
         zbuf[screenCol] = perpDist;
 
         const texStep = TEX_SIZE / lineH;
@@ -923,7 +924,7 @@ export class Renderer {
     for (let dy = -halfCells; dy <= halfCells; dy++) {
       for (let dx = -halfCells; dx <= halfCells; dx++) {
         const mx2 = px + dx, my2 = py + dy;
-        if (mx2 < 0 || mx2 >= MAP_W || my2 < 0 || my2 >= map.h) continue;
+        if (mx2 < 0 || mx2 >= map.w || my2 < 0 || my2 >= map.h) continue;
         const t = map.get(mx2, my2);
         // Check special tiles
         const key = `${mx2},${my2}`;

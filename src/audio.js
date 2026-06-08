@@ -942,6 +942,8 @@ export class AudioSystem {
   // ── AMBIENT RANDOM SOUNDS ─────────────────────────────────────────────────
   update(dt, player, entities, events) {
     if (!this.initialized) return;
+    // Keep AudioContext alive — browsers suspend it after inactivity
+    if (this.ctx?.state === 'suspended') this.ctx.resume().catch(() => {});
 
     // Heartbeat
     if (this._heartbeatActive) {

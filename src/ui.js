@@ -59,6 +59,9 @@ export class UI {
     this.optTouchSens = document.getElementById('opt-touch-sens');
     this.optVHS       = document.getElementById('opt-vhs');
     this.optFog       = document.getElementById('opt-fog');
+    this.optFOV       = document.getElementById('opt-fov');
+    this.optFOVm      = document.getElementById('opt-fov-m');
+    this.optQuality   = document.getElementById('opt-quality');
     this.optPCBtn     = document.getElementById('opt-pc');
     this.optMobileBtn = document.getElementById('opt-mobile');
 
@@ -508,6 +511,9 @@ export class UI {
   }
 
   getOptions() {
+    const fov = this.isMobile
+      ? parseInt(this.optFOVm?.value || 66)
+      : parseInt(this.optFOV?.value || 73);
     return {
       masterVol:    (this.optVol?.value || 70) / 100,
       musicVol:     (this.optMusic?.value || 50) / 100,
@@ -516,6 +522,8 @@ export class UI {
       vhsEnabled:   this.optVHS?.checked !== false,
       fogDensity:   ((this.optFog?.value || 5) / 10) * 0.12,
       isMobile:     this.isMobile,
+      fov,
+      quality:      this.optQuality?.value || (this.isMobile ? 'low' : 'high'),
     };
   }
 }

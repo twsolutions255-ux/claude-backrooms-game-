@@ -6,7 +6,8 @@ export class Player {
     this.dirX = 1;
     this.dirY = 0;
     this.planeX = 0;
-    this.planeY = 0.66; // FOV ~66 degrees
+    this.planeY = 0.75; // FOV ~73 degrees (wider default for PC feel)
+    this.fovScale = 0.75;
 
     this.health = 100;
     this.maxHealth = 100;
@@ -151,6 +152,14 @@ export class Player {
     const oldPlaneX = this.planeX;
     this.planeX = this.planeX * cos - this.planeY * sin;
     this.planeY = oldPlaneX * sin + this.planeY * cos;
+  }
+
+  setFOV(degrees) {
+    const newScale = Math.tan(degrees * 0.5 * Math.PI / 180);
+    // Re-derive plane from current direction + new scale
+    this.planeX = -this.dirY * newScale;
+    this.planeY = this.dirX * newScale;
+    this.fovScale = newScale;
   }
 
   update(dt, map, disturbance) {

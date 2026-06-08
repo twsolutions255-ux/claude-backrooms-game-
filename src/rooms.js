@@ -1,5 +1,5 @@
 // Procedural level generation with per-level themes
-import { GameMap, T, MAP_W, MAP_H } from './map.js';
+import { GameMap, T } from './map.js';
 
 function rng(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
@@ -361,7 +361,7 @@ function lobby_void_corridor(map, x, y, w, h, theme) {
   const isHoriz = Math.random() < 0.5;
   const rw = isHoriz ? len : 3, rh = isHoriz ? 3 : len;
   const cx2 = x + Math.floor(rw / 2), cy2 = y + Math.floor(rh / 2);
-  map.carveRoom(x, y, Math.min(rw, MAP_W - x - 2), Math.min(rh, map.h - y - 2), T.WALL_PAPER, theme.floorType, 1);
+  map.carveRoom(x, y, Math.min(rw, map.w - x - 2), Math.min(rh, map.h - y - 2), T.WALL_PAPER, theme.floorType, 1);
   // Identical ceiling lights at regular intervals — OCD regularity = dread
   if (isHoriz) {
     for (let lx2 = x + 4; lx2 < x + rw - 2; lx2 += 6) map.setCeiling(lx2, cy2, 1);
@@ -781,29 +781,29 @@ function carveThemedHallway(map, x1, y1, x2, y2, wallType, floorType) {
   const goHorizFirst = Math.random() < 0.5;
   if (goHorizFirst) {
     for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) {
-      if (x <= 0 || x >= MAP_W - 1) continue;
+      if (x <= 0 || x >= map.w - 1) continue;
       map.set(x, y1, T.EMPTY);
       if (y1 - 1 > 0) map.set(x, y1 - 1, T.EMPTY);
       map.setFloor(x, y1, floorType);
       if (y1 - 1 > 0) map.setFloor(x, y1 - 1, floorType);
     }
     for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) {
-      if (y <= 0 || y >= MAP_H - 1) continue;
+      if (y <= 0 || y >= map.h - 1) continue;
       map.set(x2, y, T.EMPTY);
-      if (x2 + 1 < MAP_W - 1) map.set(x2 + 1, y, T.EMPTY);
+      if (x2 + 1 < map.w - 1) map.set(x2 + 1, y, T.EMPTY);
       map.setFloor(x2, y, floorType);
-      if (x2 + 1 < MAP_W - 1) map.setFloor(x2 + 1, y, floorType);
+      if (x2 + 1 < map.w - 1) map.setFloor(x2 + 1, y, floorType);
     }
   } else {
     for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) {
-      if (y <= 0 || y >= MAP_H - 1) continue;
+      if (y <= 0 || y >= map.h - 1) continue;
       map.set(x1, y, T.EMPTY);
-      if (x1 + 1 < MAP_W - 1) map.set(x1 + 1, y, T.EMPTY);
+      if (x1 + 1 < map.w - 1) map.set(x1 + 1, y, T.EMPTY);
       map.setFloor(x1, y, floorType);
-      if (x1 + 1 < MAP_W - 1) map.setFloor(x1 + 1, y, floorType);
+      if (x1 + 1 < map.w - 1) map.setFloor(x1 + 1, y, floorType);
     }
     for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) {
-      if (x <= 0 || x >= MAP_W - 1) continue;
+      if (x <= 0 || x >= map.w - 1) continue;
       map.set(x, y2, T.EMPTY);
       if (y2 - 1 > 0) map.set(x, y2 - 1, T.EMPTY);
       map.setFloor(x, y2, floorType);
@@ -814,10 +814,12 @@ function carveThemedHallway(map, x1, y1, x2, y2, wallType, floorType) {
 
 // ── DREAMCORE OPEN WORLD ──────────────────────────────────────────────────────
 function _generateDreamcoreLevel(map, theme, level) {
+  const MW = map.w, MH = map.h;
+
   // Fill entire map as open outdoor grassland
-  for (let y = 0; y < MAP_H; y++) {
-    for (let x = 0; x < MAP_W; x++) {
-      if (x === 0 || x === MAP_W - 1 || y === 0 || y === MAP_H - 1) {
+  for (let y = 0; y < MH; y++) {
+    for (let x = 0; x < MW; x++) {
+      if (x === 0 || x === MW - 1 || y === 0 || y === MH - 1) {
         map.set(x, y, T.WALL_WOOD);
       } else {
         map.set(x, y, T.EMPTY);
@@ -830,57 +832,131 @@ function _generateDreamcoreLevel(map, theme, level) {
   const houses = [];
   const clusterCenters = [];
 
-  // Place 7-9 house clusters spread across the map
-  const clusterCount = rng(7, 9);
-  for (let c = 0; c < clusterCount * 3; c++) {
+  // Place 12-16 house clusters spread across the larger map
+  const clusterCount = rng(12, 16);
+  const minSpread = Math.floor(MW / 8);
+  for (let c = 0; c < clusterCount * 4; c++) {
     if (clusterCenters.length >= clusterCount) break;
-    const cx = rng(12, MAP_W - 22);
-    const cy = rng(12, MAP_H - 22);
-    // Ensure clusters are well spread
-    if (clusterCenters.some(([px, py]) => Math.abs(cx - px) < 16 && Math.abs(cy - py) < 16)) continue;
+    const cx = rng(14, MW - 24);
+    const cy = rng(14, MH - 24);
+    if (clusterCenters.some(([px, py]) => Math.abs(cx - px) < minSpread && Math.abs(cy - py) < minSpread)) continue;
     clusterCenters.push([cx, cy]);
   }
 
-  // Place 1-3 houses per cluster
+  // Place 1-4 houses per cluster with varied sizes
   for (const [cx, cy] of clusterCenters) {
-    const numH = rng(1, 3);
+    const numH = rng(1, 4);
     for (let i = 0; i < numH; i++) {
-      const hx = Math.max(3, Math.min(MAP_W - 14, cx + rng(-5, 5)));
-      const hy = Math.max(3, Math.min(MAP_H - 14, cy + rng(-5, 5)));
-      const hw = rng(5, 9), hh = rng(5, 8);
-      if (hx + hw >= MAP_W - 2 || hy + hh >= MAP_H - 2) continue;
-      // Avoid overlapping other houses
+      const hx = Math.max(3, Math.min(MW - 16, cx + rng(-6, 6)));
+      const hy = Math.max(3, Math.min(MH - 16, cy + rng(-6, 6)));
+      const hw = rng(6, 12), hh = rng(6, 10);
+      if (hx + hw >= MW - 2 || hy + hh >= MH - 2) continue;
       if (houses.some(h => hx < h.x + h.w + 2 && hx + hw > h.x - 2 && hy < h.y + h.h + 2 && hy + hh > h.y - 2)) continue;
-      // House interior — wood walls, wood floor, indoor ceiling light
+
+      // House — wood walls, wood floor
       map.carveRoom(hx, hy, hw, hh, T.WALL_WOOD, T.FLOOR_WOOD, 0);
-      // Door faces south (player can enter from paths below)
+      // Add interior rooms with partitions for larger houses
+      if (hw >= 10 && hh >= 8) {
+        // Bedroom partition
+        const midX = hx + Math.floor(hw * 0.55);
+        for (let fy = hy + 1; fy < hy + hh - 1; fy++) map.set(midX, fy, T.WALL_WOOD);
+        map.set(midX, hy + 2, T.DOOR_CLOSED);
+        // Kitchen counter (TABLE tiles)
+        map.set(hx + 2, hy + 1, T.TABLE);
+        map.set(hx + 3, hy + 1, T.TABLE);
+        // Bathroom alcove
+        map.set(hx + 1, hy + hh - 2, T.LOCKER_CLOSED);
+      }
+      // Door faces south
       map.set(hx + Math.floor(hw / 2), hy + hh - 1, T.DOOR_CLOSED);
-      // Garden fence posts around the house
+      // Fence posts
       for (let fx = hx - 2; fx <= hx + hw + 1; fx += 3) {
-        if (fx > 1 && fx < MAP_W - 1) {
+        if (fx > 1 && fx < MW - 1) {
           if (map.get(fx, hy - 2) === T.EMPTY) map.set(fx, hy - 2, T.WALL_WOOD);
           if (map.get(fx, hy + hh + 1) === T.EMPTY) map.set(fx, hy + hh + 1, T.WALL_WOOD);
         }
       }
-      map.addLight(hx + hw / 2, hy + hh / 2, 9, 1.0, 0.98, 0.88, 0.95);
+      map.addLight(hx + hw / 2, hy + hh / 2, 10, 1.0, 0.98, 0.88, 0.95);
       map.items.push({ x: hx + rng(1, hw - 1) + 0.5, y: hy + rng(1, hh - 1) + 0.5, type: pick(['almond_water', 'battery', 'medkit', 'compass']) });
       houses.push({ x: hx, y: hy, w: hw, h: hh, cx: hx + Math.floor(hw / 2), cy: hy + Math.floor(hh / 2) });
       map.roomList.push({ x: hx, y: hy, w: hw, h: hh, type: 'dreamcore_house' });
     }
   }
 
-  // Scatter trees (TABLE obstacles used as tree sprites)
-  for (let i = 0; i < 55; i++) {
-    const tx2 = rng(2, MAP_W - 2), ty2 = rng(2, MAP_H - 2);
-    if (map.get(tx2, ty2) === T.EMPTY) map.set(tx2, ty2, T.TABLE);
+  // Cornfield patches — rows of TABLE obstacles (corn stalks) with walking gaps
+  const cornfieldCount = rng(3, 6);
+  for (let c = 0; c < cornfieldCount; c++) {
+    const cfx = rng(10, MW - 30), cfy = rng(10, MH - 30);
+    const cfw = rng(12, 20), cfh = rng(10, 16);
+    // Check clear of houses
+    if (houses.some(h => cfx < h.x + h.w + 4 && cfx + cfw > h.x - 4 && cfy < h.y + h.h + 4 && cfy + cfh > h.y - 4)) continue;
+    // Rows of corn with walkable gaps every 3 rows
+    for (let cy2 = cfy; cy2 < cfy + cfh; cy2++) {
+      const isGapRow = ((cy2 - cfy) % 3 === 1); // walkable gap every 3 rows
+      for (let cx2 = cfx; cx2 < cfx + cfw; cx2++) {
+        if (cx2 <= 0 || cx2 >= MW - 1 || cy2 <= 0 || cy2 >= MH - 1) continue;
+        if (map.get(cx2, cy2) === T.EMPTY) {
+          map.setFloor(cx2, cy2, T.FLOOR_GRASS);
+          if (!isGapRow) map.set(cx2, cy2, T.TABLE); // corn stalk obstacle
+        }
+      }
+    }
+    // Entrance path
+    _carveGrassPath(map, cfx + Math.floor(cfw / 2), cfy, cfx + Math.floor(cfw / 2), cfy - 5);
+  }
+
+  // Gas station — metal building with road forecourt
+  const gsx = rng(15, MW - 25), gsy = rng(15, MH - 25);
+  if (!houses.some(h => gsx < h.x + h.w + 4 && gsx + 14 > h.x - 4 && gsy < h.y + h.h + 4 && gsy + 12 > h.y - 4)) {
+    // Forecourt
+    for (let fy = gsy - 4; fy < gsy + 8; fy++)
+      for (let fx = gsx - 2; fx < gsx + 14; fx++) {
+        if (fx > 0 && fx < MW - 1 && fy > 0 && fy < MH - 1 && map.get(fx, fy) === T.EMPTY) {
+          map.set(fx, fy, T.EMPTY);
+          map.setFloor(fx, fy, T.FLOOR_ROAD);
+          map.setCeiling(fx, fy, 2);
+        }
+      }
+    // Building
+    map.carveRoom(gsx, gsy, 10, 6, T.WALL_METAL, T.FLOOR_CONCRETE, 0);
+    map.set(gsx + 4, gsy + 5, T.DOOR_CLOSED);
+    map.set(gsx + 2, gsy + 1, T.VENDING_MACHINE);
+    map.set(gsx + 4, gsy + 1, T.VENDING_MACHINE);
+    map.addLight(gsx + 5, gsy + 3, 12, 0.9, 1.0, 0.95, 0.85);
+    map.items.push({ x: gsx + 7.5, y: gsy + 3.5, type: 'battery' });
+    map.items.push({ x: gsx + 7.5, y: gsy + 4.5, type: 'almond_water' });
+    map.items.push({ x: gsx + 6.5, y: gsy + 3.5, type: pick(['medkit', 'flash_grenade', 'compass']) });
+    map.specialTiles.set(`${gsx + 5},${gsy + 3}`, { type: 'liminal', text: 'OPEN 24/7' });
+  }
+
+  // Barn — large wooden structure
+  const barnx = rng(10, MW - 22), barny = rng(10, MH - 22);
+  if (!houses.some(h => barnx < h.x + h.w + 4 && barnx + 16 > h.x - 4 && barny < h.y + h.h + 4 && barny + 10 > h.y - 4)) {
+    map.carveRoom(barnx, barny, 16, 10, T.WALL_WOOD, T.FLOOR_WOOD, 0);
+    map.set(barnx + 7, barny + 9, T.DOOR_CLOSED);
+    map.set(barnx + 8, barny + 9, T.DOOR_CLOSED);
+    // Interior hay bales (TABLE tiles)
+    for (let bx = barnx + 2; bx < barnx + 14; bx += 4) {
+      map.set(bx, barny + 2, T.TABLE);
+      map.set(bx, barny + 7, T.TABLE);
+    }
+    map.addLight(barnx + 8, barny + 5, 10, 0.7, 1.0, 0.85, 0.55);
+    map.items.push({ x: barnx + 4.5, y: barny + 5.5, type: pick(['battery', 'medkit', 'tool']) });
   }
 
   // Water tower
-  const wtx = rng(20, MAP_W - 28), wty = rng(20, MAP_H - 28);
+  const wtx = rng(20, MW - 30), wty = rng(20, MH - 30);
   map.carveRoom(wtx, wty, 5, 5, T.WALL_METAL, T.FLOOR_CONCRETE, 0);
   map.specialTiles.set(`${wtx + 2},${wty + 2}`, { type: 'liminal', text: 'AM I DREAMING?' });
 
-  // Dirt paths connecting clusters (sets floor to ROAD without walls)
+  // Scatter trees
+  const treeCount = Math.floor(MW * MH / 50);
+  for (let i = 0; i < treeCount; i++) {
+    const tx2 = rng(2, MW - 2), ty2 = rng(2, MH - 2);
+    if (map.get(tx2, ty2) === T.EMPTY) map.set(tx2, ty2, T.TABLE);
+  }
+
+  // Dirt paths connecting clusters
   for (let i = 1; i < clusterCenters.length; i++) {
     const [ax, ay] = clusterCenters[i - 1];
     const [bx, by] = clusterCenters[i];
@@ -893,14 +969,13 @@ function _generateDreamcoreLevel(map, theme, level) {
   map.spawnY = sp[1] + 5.5;
 
   // Exit portal far from spawn
-  const ep = clusterCenters[clusterCenters.length - 1] || [MAP_W - 10, MAP_H - 10];
-  map.exitX = Math.min(MAP_W - 6, ep[0] + 8);
-  map.exitY = Math.min(MAP_H - 6, ep[1] + 4);
-  // Clear exit area
+  const ep = clusterCenters[clusterCenters.length - 1] || [MW - 10, MH - 10];
+  map.exitX = Math.min(MW - 6, ep[0] + 8);
+  map.exitY = Math.min(MH - 6, ep[1] + 4);
   for (let dy = -2; dy <= 2; dy++)
     for (let dx = -2; dx <= 2; dx++) {
       const ex = map.exitX + dx, ey = map.exitY + dy;
-      if (ex > 1 && ex < MAP_W - 1 && ey > 1 && ey < MAP_H - 1 && map.get(ex, ey) === T.EMPTY) {
+      if (ex > 1 && ex < MW - 1 && ey > 1 && ey < MH - 1 && map.get(ex, ey) === T.EMPTY) {
         map.setFloor(ex, ey, T.FLOOR_GRASS);
       }
     }
@@ -910,14 +985,13 @@ function _generateDreamcoreLevel(map, theme, level) {
   placeSaveRoom(map, saveX, saveY, theme);
   _carveGrassPath(map, saveX + 3, saveY + 3, sp[0], sp[1]);
 
-  // Entities — animations appear at night, scattered far from spawn
-  const numEntities = Math.min(level + 1, 5);
+  // Entities — scattered across the far half of the map
+  const numEntities = Math.min(level + 2, 7);
   for (let i = 0; i < numEntities; i++) {
-    const ex = rng(MAP_W / 2, MAP_W - 5), ey = rng(5, MAP_H - 5);
+    const ex = rng(Math.floor(MW * 0.4), MW - 5), ey = rng(5, MH - 5);
     map.entities.push({ x: ex + 0.5, y: ey + 0.5, type: 'animations' });
   }
 
-  // Add ambient outdoor light to entire map
   map.light.fill(theme.ambientBase);
   map.bakeLight();
 
@@ -925,13 +999,11 @@ function _generateDreamcoreLevel(map, theme, level) {
 }
 
 function _carveGrassPath(map, ax, ay, bx, by) {
-  // Smooth winding path with FLOOR_ROAD
+  const MW = map.w, MH = map.h;
   const dist = Math.max(Math.abs(bx - ax), Math.abs(by - ay));
   if (dist === 0) return;
-  // Use midpoint with slight random offset for organic feel
   const mx = Math.round((ax + bx) / 2) + rng(-4, 4);
   const my = Math.round((ay + by) / 2) + rng(-4, 4);
-  // Two segments: ax,ay → mx,my → bx,by
   for (const [x1, y1, x2, y2] of [[ax, ay, mx, my], [mx, my, bx, by]]) {
     const steps = Math.max(Math.abs(x2 - x1), Math.abs(y2 - y1));
     for (let i = 0; i <= steps; i++) {
@@ -941,7 +1013,7 @@ function _carveGrassPath(map, ax, ay, bx, by) {
       for (let dy = -1; dy <= 1; dy++) {
         for (let dx = -1; dx <= 1; dx++) {
           const nx = px + dx, ny = py + dy;
-          if (nx > 1 && nx < MAP_W - 1 && ny > 1 && ny < MAP_H - 1 && map.get(nx, ny) === T.EMPTY)
+          if (nx > 1 && nx < MW - 1 && ny > 1 && ny < MH - 1 && map.get(nx, ny) === T.EMPTY)
             map.setFloor(nx, ny, T.FLOOR_ROAD);
         }
       }
@@ -951,12 +1023,15 @@ function _carveGrassPath(map, ax, ay, bx, by) {
 
 // ── MAIN LEVEL GENERATOR ─────────────────────────────────────────────────────
 export function generateLevel(level = 1) {
-  const map = new GameMap();
   const theme = getTheme(level);
+  const themeKey = Object.keys(LEVEL_THEMES).find(k => LEVEL_THEMES[k] === theme) || 'default';
+
+  // Dreamcore uses larger map + separate open-world generation
+  const mapSize = themeKey === 'dreamcore' ? 160 : 80;
+  const map = new GameMap(mapSize, mapSize);
 
   // Apply theme
   map.ambientBase = theme.ambientBase;
-  const themeKey = Object.keys(LEVEL_THEMES).find(k => LEVEL_THEMES[k] === theme) || 'default';
   map.theme = themeKey;
   map.themeConfig = theme;
 
@@ -987,8 +1062,8 @@ export function generateLevel(level = 1) {
   while (rooms.length < targetRooms && attempts++ < 700) {
     const w = rng(minRW, maxRW);
     const h = rng(minRH, maxRH);
-    const x = rng(2, MAP_W - w - 2);
-    const y = rng(2, MAP_H - h - 2);
+    const x = rng(2, map.w - w - 2);
+    const y = rng(2, map.h - h - 2);
 
     // Overlap check with margin
     let overlap = false;
@@ -1043,7 +1118,7 @@ export function generateLevel(level = 1) {
   const saveCount = Math.max(1, Math.floor(rooms.length / 6));
   for (let i = 0; i < saveCount; i++) {
     for (let a2 = 0; a2 < 100; a2++) {
-      const sx = rng(3, MAP_W - 12), sy = rng(3, MAP_H - 12);
+      const sx = rng(3, map.w - 12), sy = rng(3, map.h - 12);
       let ok = true;
       for (const r of rooms) {
         if (sx < r.x + r.w + 2 && sx + 7 > r.x - 2 && sy < r.y + r.h + 2 && sy + 7 > r.y - 2) {
@@ -1070,7 +1145,7 @@ export function generateLevel(level = 1) {
     if (!r) continue;
     const lx = r.cx + pick([-1, 1]) * rng(4, 8);
     const ly = r.cy + pick([-1, 1]) * rng(4, 8);
-    if (lx > 3 && lx < MAP_W - 12 && ly > 3 && ly < MAP_H - 12) {
+    if (lx > 3 && lx < map.w - 12 && ly > 3 && ly < map.h - 12) {
       const lw = rng(5, 8), lh = rng(5, 8);
       map.carveRoom(lx, ly, lw, lh, theme.wallTypes[0], theme.floorType, 0);
       map.specialTiles.set(`${lx+Math.floor(lw/2)},${ly+Math.floor(lh/2)}`, { type: 'loot_room' });
@@ -1090,7 +1165,7 @@ export function generateLevel(level = 1) {
   if (themeKey !== 'poolrooms') {
     const eventCount = rng(1, 2 + Math.floor(level / 2));
     for (let i = 0; i < eventCount; i++) {
-      const rx = rng(3, MAP_W - 18), ry = rng(3, MAP_H - 16);
+      const rx = rng(3, map.w - 18), ry = rng(3, map.h - 16);
       let ok = true;
       for (const r of rooms) {
         if (rx < r.x + r.w + 3 && rx + 14 > r.x - 3 && ry < r.y + r.h + 3 && ry + 12 > r.y - 3) {

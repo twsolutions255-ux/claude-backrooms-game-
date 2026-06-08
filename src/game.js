@@ -125,15 +125,24 @@ export class Game {
     this._platformManuallySet = true;
     if (isMobile) {
       this.touchControls.player = this.player;
-      // Don't enable here — only enable when gameplay starts so menus stay tappable
     } else {
       this.touchControls.disable();
     }
 
-    // Update options sense slider reactivity
     document.getElementById('opt-touch-sens')?.addEventListener('input', (e) => {
       this.touchControls.setLookSensitivity(parseInt(e.target.value));
     });
+
+    // Apply platform-appropriate defaults for quality and FOV
+    if (isMobile) {
+      const qEl = document.getElementById('opt-quality');
+      if (qEl && qEl.value === 'high') qEl.value = 'low'; // default mobile to low
+      this._applyQuality(document.getElementById('opt-quality')?.value || 'low');
+      if (this.player) this.player.setFOV(parseInt(document.getElementById('opt-fov-m')?.value || 66));
+    } else {
+      this._applyQuality(document.getElementById('opt-quality')?.value || 'high');
+      if (this.player) this.player.setFOV(parseInt(document.getElementById('opt-fov')?.value || 73));
+    }
   }
 
   _onTouchAction(action) {
@@ -225,6 +234,36 @@ export class Game {
     document.getElementById('opt-fog')?.addEventListener('input', (e) => {
       if (this.renderer) this.renderer.fogDensity = (e.target.value / 10) * 0.12;
     });
+
+    // FOV sliders (PC and mobile versions)
+    const applyFOV = (val) => { if (this.player) this.player.setFOV(parseInt(val)); };
+    document.getElementById('opt-fov')?.addEventListener('input', (e) => {
+      const v = parseInt(e.target.value);
+      const lbl = document.getElementById('opt-fov-val');
+      if (lbl) lbl.textContent = v + '°';
+      applyFOV(v);
+    });
+    document.getElementById('opt-fov-m')?.addEventListener('input', (e) => {
+      const v = parseInt(e.target.value);
+      const lbl = document.getElementById('opt-fov-val-m');
+      if (lbl) lbl.textContent = v + '°';
+      applyFOV(v);
+    });
+
+    // Quality preset
+    document.getElementById('opt-quality')?.addEventListener('change', (e) => {
+      this._applyQuality(e.target.value);
+    });
+  }
+
+  _applyQuality(quality) {
+    const presets = {
+      low:    { numRays: 160 },
+      medium: { numRays: 240 },
+      high:   { numRays: 320 },
+    };
+    const p = presets[quality] || presets.medium;
+    if (this.renderer) this.renderer.numRays = p.numRays;
   }
 
   _bindGameInput() {
@@ -364,6 +403,8 @@ export class Game {
     const opts = this.ui.getOptions();
     this.effects.enabled = opts.vhsEnabled;
     this.renderer.fogDensity = opts.fogDensity || 0.09;
+    if (opts.fov && this.player) this.player.setFOV(opts.fov);
+    this._applyQuality(opts.quality || (this.ui.isMobile ? 'low' : 'high'));
 
     this.ui.setLoadProgress(80, 'LOADING TEXTURES…');
     await new Promise(r => setTimeout(r, 150));
